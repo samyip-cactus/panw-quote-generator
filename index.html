@@ -317,7 +317,7 @@
     // 3. 報價生成引擎模組
     // ==========================================
     function QuotationEngine({ products, loading, userRole, onLogout }) {
-      const [currency, setCurrency] = useState('USD');
+      const [currency, setCurrency] = useState('HKD'); // 預設貨幣改為 HKD
       const [strategy, setStrategy] = useState('Standard');
       const exchangeRate = currency === 'HKD' ? 7.85 : 1;
       
@@ -394,7 +394,8 @@
         const defaultDiscount = product[strategyDiscountField] || 0;
         const appliedDiscount = manualDiscount !== null ? manualDiscount : defaultDiscount;
         
-        const distyUnitCost = listPrice * (1 - appliedDiscount);
+        // DISTY COST = LIST PRICE * (1 - DISCOUNT) * QTY
+        const distyCost = listPrice * (1 - appliedDiscount) * qty;
         
         const defaultMargin = strategy === 'VELOCI Program' 
           ? (product.Disty_margin_Veloci || 0.1) 
@@ -404,15 +405,30 @@
         const incentiveUSD = (product.Incentive_coupon || 0) + (product.Incentive_gift || 0);
         const incentivePool = incentiveUSD * exchangeRate;
         
-        let extendedPrice = 0;
+        let extendedPriceRaw = 0;
         if (appliedMargin < 1) {
-          extendedPrice = (distyUnitCost * qty / (1 - appliedMargin)) + incentivePool;
+          extendedPriceRaw = (distyCost / (1 - appliedMargin)) + incentivePool;
         }
 
-        return { listPrice, appliedDiscount, distyUnitCost, appliedMargin, incentivePool, extendedPrice };
+        // RESELLER EXTENDED PRICE 的四捨五入邏輯
+        let extendedPrice = extendedPriceRaw;
+        if (currency === 'HKD') {
+          // HKD 捨入到十位數 (例：1234 -> 1230)
+          extendedPrice = Math.round(extendedPriceRaw / 10) * 10;
+        } else {
+          // USD 捨入到個位數 (例：1234.5 -> 1235)
+          extendedPrice = Math.round(extendedPriceRaw);
+        }
+
+        return { listPrice, appliedDiscount, distyCost, appliedMargin, incentivePool, extendedPrice };
       };
 
+      // 總額與拆解細項計算
       const totalAmount = cart.reduce((sum, item) => sum + getCalculatedRow(item).extendedPrice, 0);
+      const totalBookingToVendor = cart.reduce((sum, item) => sum + getCalculatedRow(item).distyCost, 0);
+      const totalOtherCost = cart.reduce((sum, item) => sum + getCalculatedRow(item).incentivePool, 0);
+      const totalGrossMarginAmount = totalAmount - totalBookingToVendor;
+      const totalGrossMarginPercent = totalAmount > 0 ? (totalGrossMarginAmount / totalAmount) * 100 : 0;
 
       const saveQuotation = () => {
         if (cart.length === 0) return;
@@ -432,7 +448,7 @@
               Qty: item.qty,
               ListPrice: calc.listPrice,
               Discount: calc.appliedDiscount,
-              DistyUnitCost: calc.distyUnitCost,
+              DistyCost: calc.distyCost,
               Margin: calc.appliedMargin,
               ExtendedPrice: calc.extendedPrice
             };
@@ -446,9 +462,13 @@
         setTimeout(() => setToastMessage(''), 3000);
       };
 
-      const formatMoney = (val) => {
+      // 格式化貨幣 (支援設定隱藏小數位)
+      const formatMoney = (val, hideDecimals = false) => {
         return new Intl.NumberFormat('en-US', {
-          style: 'currency', currency: currency, minimumFractionDigits: 2
+          style: 'currency', 
+          currency: currency, 
+          minimumFractionDigits: hideDecimals ? 0 : 2,
+          maximumFractionDigits: hideDecimals ? 0 : 2
         }).format(val);
       };
 
@@ -500,8 +520,8 @@
                         <td className="py-3 font-medium text-slate-700">{item.product.SKU}</td>
                         <td className="py-3 text-slate-600 pr-4">{item.product.Description}</td>
                         <td className="py-3 text-center">{item.qty}</td>
-                        <td className="py-3 text-right">{formatMoney(unitPrice)}</td>
-                        <td className="py-3 text-right font-semibold">{formatMoney(calc.extendedPrice)}</td>
+                        <td className="py-3 text-right">{formatMoney(unitPrice, true)}</td>
+                        <td className="py-3 text-right font-semibold">{formatMoney(calc.extendedPrice, true)}</td>
                       </tr>
                     )
                   })}
@@ -512,7 +532,7 @@
                 <div className="w-64 border-t-2 border-slate-800 pt-4">
                   <div className="flex justify-between items-center text-lg font-bold text-slate-800">
                     <span>Total ({currency}):</span>
-                    <span>{formatMoney(totalAmount)}</span>
+                    <span>{formatMoney(totalAmount, true)}</span>
                   </div>
                 </div>
               </div>
@@ -549,8 +569,8 @@
                   <div className="flex items-center gap-2 px-2">
                     <span className="text-xs font-semibold text-slate-500 uppercase">幣別</span>
                     <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="bg-transparent font-bold text-sm text-slate-800 outline-none cursor-pointer">
-                      <option value="USD">USD</option>
                       <option value="HKD">HKD</option>
+                      <option value="USD">USD</option>
                     </select>
                   </div>
                   <div className="w-px h-5 bg-slate-300"></div>
@@ -626,12 +646,12 @@
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200">
                     <tr>
                       <th className="px-4 py-3 font-semibold w-64">SKU / 描述</th>
-                      <th className="px-4 py-3 font-semibold text-right">LIST PRICE<br/>({currency})</th>
+                      <th className="px-4 py-3 font-semibold text-right">UNIT LIST PRICE<br/>({currency})</th>
                       <th className="px-4 py-3 font-semibold text-center w-28">DISCOUNT<br/>(可覆寫)</th>
                       <th className="px-4 py-3 font-semibold text-right">DISTY COST<br/>({currency})</th>
                       <th className="px-4 py-3 font-semibold text-center w-20">QTY</th>
                       <th className="px-4 py-3 font-semibold text-center w-28">MARGIN<br/>(可覆寫)</th>
-                      <th className="px-4 py-3 font-semibold text-right">INCENTIVE POOL<br/>({currency})</th>
+                      <th className="px-4 py-3 font-semibold text-right">INCENTIVE<br/>({currency})</th>
                       <th className="px-4 py-3 font-semibold text-right bg-blue-50 text-blue-800">RESELLER EXTENDED PRICE<br/>({currency})</th>
                       <th className="px-2 py-3 text-center"></th>
                     </tr>
@@ -674,7 +694,7 @@
                               </div>
                             </td>
                             
-                            <td className="px-4 py-3 text-right text-slate-600 font-mono">{formatMoney(calc.distyUnitCost)}</td>
+                            <td className="px-4 py-3 text-right text-slate-600 font-mono">{formatMoney(calc.distyCost)}</td>
                             <td className="px-4 py-3 text-center">
                               <input type="number" min="1"
                                 className="w-14 bg-white border border-slate-300 rounded p-1 text-xs text-center focus:border-blue-500 outline-none"
@@ -696,7 +716,7 @@
                             </td>
                             
                             <td className="px-4 py-3 text-right text-slate-600 font-mono">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
-                            <td className="px-4 py-3 text-right font-bold text-blue-700 bg-blue-50/50 font-mono">{formatMoney(calc.extendedPrice)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-blue-700 bg-blue-50/50 font-mono">{formatMoney(calc.extendedPrice, true)}</td>
                             <td className="px-2 py-3 text-center">
                               <button onClick={() => removeRow(item.id)} className="text-slate-400 hover:text-red-500 transition-colors p-1">
                                 <Icon name="Trash2" size={16} />
@@ -711,8 +731,8 @@
               </div>
             </div>
 
-            <div className="flex justify-between items-end">
-              <div className="flex gap-3">
+            <div className="flex justify-between items-start">
+              <div className="flex gap-3 mt-1">
                 <button 
                   onClick={() => setIsPreview(true)} disabled={cart.length === 0}
                   className="bg-white border-2 border-slate-200 text-slate-700 font-semibold px-6 py-2.5 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -727,9 +747,33 @@
                 </button>
               </div>
 
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 min-w-[300px]">
-                <div className="text-sm font-semibold text-slate-500 mb-1 uppercase tracking-wider">總金額 Total Amount</div>
-                <div className="text-3xl font-bold text-slate-800 tracking-tight font-mono">{formatMoney(totalAmount)}</div>
+              {/* 總額與拆解區塊 */}
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 min-w-[360px] flex flex-col gap-3">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm font-semibold text-slate-500 uppercase tracking-wider">總金額 Total Amount</div>
+                  <div className="text-3xl font-bold text-slate-800 tracking-tight font-mono">{formatMoney(totalAmount, true)}</div>
+                </div>
+                
+                {/* 成本拆解與毛利細項 */}
+                <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-500 font-semibold uppercase tracking-wide">BOOKING TO VENDOR ({currency})</span>
+                    <span className="text-xl font-mono font-medium text-slate-700">{formatMoney(totalBookingToVendor, true)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-500 font-semibold uppercase tracking-wide">OTHER COST ({currency})</span>
+                    <span className="text-xl font-mono font-medium text-slate-700">{formatMoney(totalOtherCost, true)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-500 font-semibold uppercase tracking-wide">GROSS MARGIN ({currency})</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl font-mono font-bold text-slate-800">{formatMoney(totalGrossMarginAmount, true)}</span>
+                      <span className="text-base font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                        ({totalGrossMarginPercent.toFixed(1)}%)
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </main>
