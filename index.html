@@ -34,6 +34,16 @@
       .no-print { display: none !important; }
       .print-container { max-width: 100%; box-shadow: none; padding: 0; }
     }
+    
+    /* 隱藏數字輸入框的上下箭頭 */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+      -webkit-appearance: none; 
+      margin: 0; 
+    }
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans">
@@ -320,6 +330,15 @@
       
       const searchContainerRef = useRef(null);
 
+      // 當全域策略改變時，自動清空手動覆寫的數值，確保列表數值跟隨策略刷新
+      useEffect(() => {
+        setCart(prev => prev.map(item => ({
+          ...item,
+          manualDiscount: null,
+          manualMargin: null
+        })));
+      }, [strategy]);
+
       // Typeahead 記憶體過濾
       const searchResults = useMemo(() => {
         if (!searchQuery.trim()) return [];
@@ -468,8 +487,8 @@
                     <th className="py-3 text-left font-semibold">SKU / Item</th>
                     <th className="py-3 text-left font-semibold">Description</th>
                     <th className="py-3 text-center font-semibold">Qty</th>
-                    <th className="py-3 text-right font-semibold">Unit Price</th>
-                    <th className="py-3 text-right font-semibold">Extended Price</th>
+                    <th className="py-3 text-right font-semibold">Unit Price ({currency})</th>
+                    <th className="py-3 text-right font-semibold">Reseller Extended Price ({currency})</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -607,13 +626,13 @@
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200">
                     <tr>
                       <th className="px-4 py-3 font-semibold w-64">SKU / 描述</th>
-                      <th className="px-4 py-3 font-semibold text-right">List Price<br/>({currency})</th>
-                      <th className="px-4 py-3 font-semibold text-center w-24">Discount<br/>(可覆寫)</th>
-                      <th className="px-4 py-3 font-semibold text-right">Disty Cost</th>
-                      <th className="px-4 py-3 font-semibold text-center w-20">Qty</th>
-                      <th className="px-4 py-3 font-semibold text-center w-24">Margin<br/>(可覆寫)</th>
-                      <th className="px-4 py-3 font-semibold text-right">Incentive<br/>({currency})</th>
-                      <th className="px-4 py-3 font-semibold text-right bg-blue-50 text-blue-800">Extended Price</th>
+                      <th className="px-4 py-3 font-semibold text-right">LIST PRICE<br/>({currency})</th>
+                      <th className="px-4 py-3 font-semibold text-center w-28">DISCOUNT<br/>(可覆寫)</th>
+                      <th className="px-4 py-3 font-semibold text-right">DISTY COST<br/>({currency})</th>
+                      <th className="px-4 py-3 font-semibold text-center w-20">QTY</th>
+                      <th className="px-4 py-3 font-semibold text-center w-28">MARGIN<br/>(可覆寫)</th>
+                      <th className="px-4 py-3 font-semibold text-right">INCENTIVE<br/>({currency})</th>
+                      <th className="px-4 py-3 font-semibold text-right bg-blue-50 text-blue-800">RESELLER EXTENDED PRICE<br/>({currency})</th>
                       <th className="px-2 py-3 text-center"></th>
                     </tr>
                   </thead>
@@ -642,15 +661,19 @@
                               </div>
                             </td>
                             <td className="px-4 py-3 text-right text-slate-600 font-mono">{formatMoney(calc.listPrice)}</td>
+                            
+                            {/* DISCOUNT 百分比輸入框 */}
                             <td className="px-4 py-3 text-center">
-                              <div className="flex items-center justify-center">
-                                <input type="number" step="0.01" min="0" max="1"
-                                  className="w-16 bg-white border border-slate-300 rounded p-1 text-xs text-center focus:border-blue-500 outline-none"
-                                  value={item.manualDiscount !== null ? item.manualDiscount : calc.appliedDiscount}
-                                  onChange={(e) => updateRow(item.id, 'manualDiscount', e.target.value === '' ? null : parseFloat(e.target.value))}
+                              <div className="flex items-center justify-center gap-1">
+                                <input type="number" step="0.1" min="0" max="100"
+                                  className="w-16 bg-white border border-slate-300 rounded p-1 text-xs text-right focus:border-blue-500 outline-none"
+                                  value={Number(((item.manualDiscount !== null ? item.manualDiscount : calc.appliedDiscount) * 100).toFixed(2))}
+                                  onChange={(e) => updateRow(item.id, 'manualDiscount', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
                                 />
+                                <span className="text-slate-500 font-bold">%</span>
                               </div>
                             </td>
+                            
                             <td className="px-4 py-3 text-right text-slate-600 font-mono">{formatMoney(calc.distyUnitCost)}</td>
                             <td className="px-4 py-3 text-center">
                               <input type="number" min="1"
@@ -659,13 +682,19 @@
                                 onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)}
                               />
                             </td>
+                            
+                            {/* MARGIN 百分比輸入框 */}
                             <td className="px-4 py-3 text-center">
-                               <input type="number" step="0.01" min="0" max="0.99"
-                                  className="w-16 bg-white border border-slate-300 rounded p-1 text-xs text-center focus:border-blue-500 outline-none"
-                                  value={item.manualMargin !== null ? item.manualMargin : calc.appliedMargin}
-                                  onChange={(e) => updateRow(item.id, 'manualMargin', e.target.value === '' ? null : parseFloat(e.target.value))}
-                                />
+                               <div className="flex items-center justify-center gap-1">
+                                 <input type="number" step="0.1" min="0" max="100"
+                                    className="w-16 bg-white border border-slate-300 rounded p-1 text-xs text-right focus:border-blue-500 outline-none"
+                                    value={Number(((item.manualMargin !== null ? item.manualMargin : calc.appliedMargin) * 100).toFixed(2))}
+                                    onChange={(e) => updateRow(item.id, 'manualMargin', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
+                                  />
+                                  <span className="text-slate-500 font-bold">%</span>
+                               </div>
                             </td>
+                            
                             <td className="px-4 py-3 text-right text-slate-600 font-mono">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
                             <td className="px-4 py-3 text-right font-bold text-blue-700 bg-blue-50/50 font-mono">{formatMoney(calc.extendedPrice)}</td>
                             <td className="px-2 py-3 text-center">
