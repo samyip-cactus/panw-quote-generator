@@ -427,7 +427,9 @@
       const totalAmount = cart.reduce((sum, item) => sum + getCalculatedRow(item).extendedPrice, 0);
       const totalBookingToVendor = cart.reduce((sum, item) => sum + getCalculatedRow(item).distyCost, 0);
       const totalOtherCost = cart.reduce((sum, item) => sum + getCalculatedRow(item).incentivePool, 0);
-      const totalGrossMarginAmount = totalAmount - totalBookingToVendor;
+      
+      // 更新 GROSS MARGIN 計算公式：TOTAL AMOUNT - BOOKING TO VENDOR - OTHER COST
+      const totalGrossMarginAmount = totalAmount - totalBookingToVendor - totalOtherCost;
       const totalGrossMarginPercent = totalAmount > 0 ? (totalGrossMarginAmount / totalAmount) * 100 : 0;
 
       const saveQuotation = () => {
@@ -757,18 +759,18 @@
                 {/* 成本拆解與毛利細項 */}
                 <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-500 font-semibold uppercase tracking-wide">BOOKING TO VENDOR ({currency})</span>
-                    <span className="text-xl font-mono font-medium text-slate-700">{formatMoney(totalBookingToVendor, true)}</span>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">BOOKING TO VENDOR ({currency})</span>
+                    <span className="text-sm font-mono font-medium text-slate-700">{formatMoney(totalBookingToVendor, true)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-500 font-semibold uppercase tracking-wide">OTHER COST ({currency})</span>
-                    <span className="text-xl font-mono font-medium text-slate-700">{formatMoney(totalOtherCost, true)}</span>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">OTHER COST ({currency})</span>
+                    <span className="text-sm font-mono font-medium text-slate-700">{formatMoney(totalOtherCost, true)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-500 font-semibold uppercase tracking-wide">GROSS MARGIN ({currency})</span>
+                    <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">GROSS MARGIN ({currency})</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-xl font-mono font-bold text-slate-800">{formatMoney(totalGrossMarginAmount, true)}</span>
-                      <span className="text-base font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                      <span className="text-sm font-mono font-bold text-slate-800">{formatMoney(totalGrossMarginAmount, true)}</span>
+                      <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
                         ({totalGrossMarginPercent.toFixed(1)}%)
                       </span>
                     </div>
