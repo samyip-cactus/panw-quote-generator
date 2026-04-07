@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>B2B 報價生成系統</title>
+  
+  <!-- 載入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 全域錯誤攔截器 (避免白畫面找不到原因) -->
+  <script>
+    window.onerror = function(msg, url, line, col, error) {
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) loadingEl.style.display = 'none';
+      document.body.innerHTML += '<div style="position:fixed; top:0; left:0; right:0; background:#fee2e2; border-bottom:1px solid #f87171; color:#b91c1c; padding:16px; z-index:9999; font-family:sans-serif; text-align:left;">' +
+        '<h3 style="font-weight:bold; margin-bottom:4px;">系統發生錯誤，導致無法渲染畫面：</h3>' + msg + 
+        '<br/><pre style="margin-top:8px; font-size:12px; color:#7f1d1d; overflow:auto;">' + (error && error.stack ? error.stack : '') + '</pre>' +
+      '</div>';
+    };
+  </script>
+
+  <!-- 載入 React (使用穩定的 cdnjs) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  
+  <!-- 載入 Babel Standalone 支援 JSX -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
+
+  <!-- 全局樣式補強 (列印樣式) -->
+  <style>
+    @media print {
+      body { background: white; margin: 0; padding: 0; }
+      .no-print { display: none !important; }
+      .print-container { max-width: 100%; box-shadow: none; padding: 0; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans">
+  
+  <!-- 初始載入動畫 -->
+  <div id="loading" class="flex flex-col items-center justify-center min-h-screen text-slate-500">
+    <svg class="animate-spin mb-3 h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    <div class="font-semibold">系統初始化中...</div>
+  </div>
+
+  <!-- React 應用的掛載點 -->
+  <div id="root"></div>
+
+  <!-- Firebase 原生模組載入器 (動態載入修正 SyntaxError) -->
+  <script type="module">
+    Promise.all([
+      import('https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js'),
+      import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js')
+    ]).then(([app, auth, firestore]) => {
+      window.FirebaseLib = { ...app, ...auth, ...firestore };
+      window.dispatchEvent(new Event('firebase-loaded'));
+    }).catch(e => {
+      console.error("Firebase module import failed:", e);
+      window.dispatchEvent(new Event('firebase-failed'));
+    });
+  </script>
+
+  <!-- 應用程式主邏輯 -->
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // ==========================================
+    // 0. 內建輕量 SVG Icon 元件
+    // ==========================================
+    const SVG_PATHS = {
+      Search: <><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></>,
+      Printer: <><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></>,
+      Save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
+      LogOut: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></>,
+      Plus: <><path d="M5 12h14"/><path d="M12 5v14"/></>,
+      Trash2: <><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></>,
+      X: <><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
+      Check: <><polyline points="20 6 9 17 4 12"/></>,
+      FileText: <><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></>,
+      ShieldAlert: <><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2-1 4-2 7-2 2.5 0 4.5 1 6 2a1 1 0 0 1 1 1v7z"/><path d="M12 8v4"/><path d="M12 16h.01"/></>
+    };
+
+    const Icon = ({ name, size = 20, className = '' }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        {SVG_PATHS[name]}
+      </svg>
+    );
+
+    // ==========================================
+    // 1. 定義常數與假資料
+    // ==========================================
+    const STRATEGIES = {
+      'Standard': 'Discount_Std',
+      'Deal Reg, Registered Partner': 'Discount_DR_Registered',
+      'Deal Reg, Innovator': 'Discount_DR_Innovator',
+      'Deal Reg, Platinum': 'Discount_DR_Platinum',
+      'Deal Reg, Diamond': 'Discount_DR_Diamond',
+      'VELOCI Program': 'Discount_Veloci',
+      'Renew, Incumbent': 'Discount_Renew_Incumbent',
+      'Renew, Non-incumbent': 'Discount_Renew_base'
+    };
+
+    const MOCK_PRODUCTS = [
+      {
+        Product_class: "Hardware", Product_group: "Platforms", Model: "PA-3220", SKU: "PAN-PA-3220",
+        Description: "Palo Alto Networks PA-3220", Product_type: "Production",
+        Unit_list_price: 18000, Term_months: 12, Is_Renew: "FALSE", Is_HA: "FALSE",
+        Discount_Std: 0.13, Discount_DR_Registered: 0.29, Discount_DR_Innovator: 0.37, Discount_DR_Platinum: 0.39, Discount_DR_Diamond: 0.41,
+        Discount_Renew_Incumbent: 0.0, Discount_Renew_base: 0.0, Discount_Veloci: 0.29,
+        Incentive_coupon: 50, Incentive_gift: 100, Disty_margin: 0.15, Disty_margin_Veloci: 0.10,
+        searchKeywords: ["pan-pa-3220", "pa-3220", "palo alto", "hardware"]
+      },
+      {
+        Product_class: "Hardware", Product_group: "Platforms", Model: "PA-440", SKU: "PAN-PA-440",
+        Description: "Palo Alto Networks PA-440", Product_type: "Production",
+        Unit_list_price: 2000, Term_months: 12, Is_Renew: "FALSE", Is_HA: "FALSE",
+        Discount_Std: 0.10, Discount_DR_Registered: 0.25, Discount_DR_Innovator: 0.30, Discount_DR_Platinum: 0.35, Discount_DR_Diamond: 0.40,
+        Discount_Renew_Incumbent: 0.0, Discount_Renew_base: 0.0, Discount_Veloci: 0.30,
+        Incentive_coupon: 10, Incentive_gift: 20, Disty_margin: 0.15, Disty_margin_Veloci: 0.10,
+        searchKeywords: ["pan-pa-440", "pa-440", "palo alto", "hardware"]
+      },
+      {
+        Product_class: "Subscription", Product_group: "Threat Prevention", Model: "TP-3220", SKU: "PAN-PA-3220-TP",
+        Description: "Threat Prevention Subscription 1 Year", Product_type: "Subscription",
+        Unit_list_price: 3600, Term_months: 12, Is_Renew: "TRUE", Is_HA: "FALSE",
+        Discount_Std: 0.13, Discount_DR_Registered: 0.29, Discount_DR_Innovator: 0.37, Discount_DR_Platinum: 0.39, Discount_DR_Diamond: 0.41,
+        Discount_Renew_Incumbent: 0.15, Discount_Renew_base: 0.05, Discount_Veloci: 0.25,
+        Incentive_coupon: 0, Incentive_gift: 0, Disty_margin: 0.15, Disty_margin_Veloci: 0.10,
+        searchKeywords: ["pan-pa-3220-tp", "threat prevention", "subscription", "renew"]
+      }
+    ];
+
+    // ==========================================
+    // 2. 根元件 (App) 與 Firebase 實例化
+    // ==========================================
+    function App({ fb }) {
+      const [user, setUser] = useState(null);
+      const [appUnlocked, setAppUnlocked] = useState(false);
+      const [userRole, setUserRole] = useState('GUEST');
+      const [products, setProducts] = useState([]);
+      const [loading, setLoading] = useState(true);
+
+      // 使用用戶專屬的真實 Firebase Config
+      const firebaseConfig = {
+        apiKey: "AIzaSyDCY2xS1KH742gaDUDyK18M7LnA8ML0FOs",
+        authDomain: "panw-quote-generator.firebaseapp.com",
+        projectId: "panw-quote-generator",
+        storageBucket: "panw-quote-generator.firebasestorage.app",
+        messagingSenderId: "916390333344",
+        appId: "1:916390333344:web:dbc3ba95b46cf0f13832c5",
+        measurementId: "G-0NR1BTLYCJ"
+      };
+
+      // 提取模組方法，若 fb 遺失則提供安全後備
+      const { 
+        initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged,
+        getFirestore, collection, doc, setDoc, getDocs 
+      } = fb || {};
+
+      // 嘗試初始化 Firebase，失敗時進入本機模擬模式
+      const { auth, db, isMockMode } = useMemo(() => {
+        if (!fb) return { isMockMode: true };
+        try {
+          const app = initializeApp(firebaseConfig);
+          return { auth: getAuth(app), db: getFirestore(app), isMockMode: false };
+        } catch (err) {
+          console.warn("Firebase 初始化失敗，自動切換至本機模擬模式", err);
+          return { isMockMode: true };
+        }
+      }, [fb]);
+
+      // 驗證狀態監聽
+      useEffect(() => {
+        if (isMockMode || !auth) {
+          // 本機模式，直接跳過驗證
+          setUser({ uid: 'mock-user' });
+          return;
+        }
+
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+          if (currentUser) {
+            setUser(currentUser);
+            setAppUnlocked(true);
+            setUserRole('USER');
+          } else {
+            setUser(null);
+            setAppUnlocked(false);
+            setUserRole('GUEST');
+          }
+        });
+        return () => unsubscribe();
+      }, [auth, isMockMode]);
+
+      // 資料讀取
+      useEffect(() => {
+        if (!user) return;
+        
+        if (isMockMode || !db) {
+          setProducts(MOCK_PRODUCTS);
+          setLoading(false);
+          return;
+        }
+        
+        // 直接對應 GAS 寫入的根目錄 'products' 集合
+        const productsRef = collection(db, 'products');
+        const seedAndFetchData = async () => {
+          setLoading(true);
+          try {
+            const snapshot = await getDocs(productsRef);
+            if (snapshot.empty) {
+              for (const prod of MOCK_PRODUCTS) {
+                await setDoc(doc(productsRef, prod.SKU), prod);
+              }
+              setProducts(MOCK_PRODUCTS);
+            } else {
+              const loadedProducts = snapshot.docs.map(d => ({ ...d.data() }));
+              setProducts(loadedProducts);
+            }
+          } catch (err) {
+            console.warn("Firestore 讀取失敗，使用預設假資料保障運作:", err);
+            setProducts(MOCK_PRODUCTS);
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        seedAndFetchData();
+      }, [user, db, isMockMode]);
+
+      const handleGoogleLogin = async () => {
+        if (isMockMode) {
+          setAppUnlocked(true);
+          setUserRole('ADMIN');
+          return;
+        }
+        try {
+          const provider = new GoogleAuthProvider();
+          await signInWithPopup(auth, provider);
+        } catch (error) {
+          console.error("登入失敗", error);
+          alert("登入失敗: " + error.message);
+        }
+      };
+
+      const handleLogout = async () => {
+        if (!isMockMode && auth) {
+          try {
+            await signOut(auth);
+          } catch (e) {
+            console.error("登出失敗", e);
+          }
+        }
+        setAppUnlocked(false);
+        setUserRole('GUEST');
+      };
+
+      if (!appUnlocked) {
+        return (
+          <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
+            <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-slate-100 relative overflow-hidden">
+              {isMockMode && (
+                <div className="absolute top-0 left-0 right-0 bg-amber-400 text-amber-900 text-xs text-center py-1 font-bold">
+                  目前為離線/本機模擬模式 (Mock Mode)
+                </div>
+              )}
+              <div className="flex justify-center mb-6 mt-4">
+                <div className="h-16 w-16 bg-blue-600 text-white rounded-full flex items-center justify-center">
+                  <Icon name="ShieldAlert" size={32} />
+                </div>
+              </div>
+              <h1 className="text-2xl font-bold text-center mb-2">B2B 報價生成系統</h1>
+              <p className="text-center text-slate-500 mb-8 text-sm">企業級高載量版 - 內部銷售團隊專用</p>
+              
+              <button 
+                onClick={handleGoogleLogin}
+                className="w-full bg-white border-2 border-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-3"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                </svg>
+                透過 Google 帳號登入
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <QuotationEngine 
+          products={products} 
+          loading={loading} 
+          userRole={userRole} 
+          onLogout={handleLogout} 
+        />
+      );
+    }
+
+    // ==========================================
+    // 3. 報價生成引擎模組
+    // ==========================================
+    function QuotationEngine({ products, loading, userRole, onLogout }) {
+      const [currency, setCurrency] = useState('USD');
+      const [strategy, setStrategy] = useState('Standard');
+      const exchangeRate = currency === 'HKD' ? 7.85 : 1;
+      
+      const [cart, setCart] = useState([]);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [isSearching, setIsSearching] = useState(false);
+      const [isPreview, setIsPreview] = useState(false);
+      const [customerName, setCustomerName] = useState('');
+      const [toastMessage, setToastMessage] = useState('');
+      
+      const searchContainerRef = useRef(null);
+
+      // Typeahead 記憶體過濾
+      const searchResults = useMemo(() => {
+        if (!searchQuery.trim()) return [];
+        const term = searchQuery.toLowerCase();
+        
+        return products.filter(p => {
+          const matchSKU = p.SKU?.toLowerCase().includes(term);
+          const matchDesc = p.Description?.toLowerCase().includes(term);
+          const matchKeywords = p.searchKeywords?.some(k => k.toLowerCase().includes(term));
+          return matchSKU || matchDesc || matchKeywords;
+        }).slice(0, 20);
+      }, [searchQuery, products]);
+
+      useEffect(() => {
+        const handleClickOutside = (event) => {
+          if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+            setIsSearching(false);
+          }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, []);
+
+      const addToCart = (product) => {
+        const newItemId = `${product.SKU}_${Date.now()}`;
+        setCart(prev => [...prev, {
+          id: newItemId,
+          product: product,
+          qty: 1,
+          manualDiscount: null,
+          manualMargin: null
+        }]);
+        setSearchQuery('');
+        setIsSearching(false);
+      };
+
+      const removeRow = (id) => setCart(prev => prev.filter(item => item.id !== id));
+
+      const updateRow = (id, field, value) => {
+        setCart(prev => prev.map(item => {
+          if (item.id === id) return { ...item, [field]: value };
+          return item;
+        }));
+      };
+
+      const getCalculatedRow = (item) => {
+        const { product, qty, manualDiscount, manualMargin } = item;
+        
+        const listPriceUSD = product.Unit_list_price || 0;
+        const listPrice = listPriceUSD * exchangeRate;
+        
+        const strategyDiscountField = STRATEGIES[strategy];
+        const defaultDiscount = product[strategyDiscountField] || 0;
+        const appliedDiscount = manualDiscount !== null ? manualDiscount : defaultDiscount;
+        
+        const distyUnitCost = listPrice * (1 - appliedDiscount);
+        
+        const defaultMargin = strategy === 'VELOCI Program' 
+          ? (product.Disty_margin_Veloci || 0.1) 
+          : (product.Disty_margin || 0.15);
+        const appliedMargin = manualMargin !== null ? manualMargin : defaultMargin;
+        
+        const incentiveUSD = (product.Incentive_coupon || 0) + (product.Incentive_gift || 0);
+        const incentivePool = incentiveUSD * exchangeRate;
+        
+        let extendedPrice = 0;
+        if (appliedMargin < 1) {
+          extendedPrice = (distyUnitCost * qty / (1 - appliedMargin)) + incentivePool;
+        }
+
+        return { listPrice, appliedDiscount, distyUnitCost, appliedMargin, incentivePool, extendedPrice };
+      };
+
+      const totalAmount = cart.reduce((sum, item) => sum + getCalculatedRow(item).extendedPrice, 0);
+
+      const saveQuotation = () => {
+        if (cart.length === 0) return;
+        
+        const quotationData = {
+          QuoteID: `QT-${Date.now().toString().slice(-6)}`,
+          Date: new Date().toISOString(),
+          CustomerName: customerName || 'Unknown',
+          Currency: currency,
+          AppliedStrategy: strategy,
+          TotalAmount: totalAmount,
+          Items: cart.map(item => {
+            const calc = getCalculatedRow(item);
+            return {
+              SKU: item.product.SKU,
+              Description: item.product.Description,
+              Qty: item.qty,
+              ListPrice: calc.listPrice,
+              Discount: calc.appliedDiscount,
+              DistyUnitCost: calc.distyUnitCost,
+              Margin: calc.appliedMargin,
+              ExtendedPrice: calc.extendedPrice
+            };
+          })
+        };
+
+        console.log("=== 準備寫入 GAS API 的報價資料 ===");
+        console.log(JSON.stringify(quotationData, null, 2));
+        
+        setToastMessage('報價單已成功送出！請查看 Console。');
+        setTimeout(() => setToastMessage(''), 3000);
+      };
+
+      const formatMoney = (val) => {
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency', currency: currency, minimumFractionDigits: 2
+        }).format(val);
+      };
+
+      // 預覽列印模式 UI
+      if (isPreview) {
+        return (
+          <div className="min-h-screen bg-white text-slate-900 font-sans p-8 print:p-0">
+            <div className="max-w-4xl mx-auto print-container">
+              <div className="flex justify-between items-start mb-10">
+                <div>
+                  <h1 className="text-3xl font-bold text-slate-800 mb-2">OFFICIAL QUOTATION</h1>
+                  <p className="text-sm text-slate-500">Date: {new Date().toLocaleDateString()}</p>
+                  <p className="text-sm text-slate-500">Customer: {customerName || '____________________'}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold text-slate-700">Palo Alto Networks Reseller</p>
+                  <p className="text-sm text-slate-500">Currency: {currency}</p>
+                  <button 
+                    onClick={() => window.print()}
+                    className="mt-4 no-print bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 ml-auto"
+                  >
+                    <Icon name="Printer" size={16} /> 列印 PDF
+                  </button>
+                  <button 
+                    onClick={() => setIsPreview(false)}
+                    className="mt-2 no-print text-slate-500 hover:text-slate-800 text-sm flex items-center gap-1 justify-end w-full"
+                  >
+                    <Icon name="X" size={14} /> 退出預覽
+                  </button>
+                </div>
+              </div>
+
+              <table className="w-full border-collapse mb-8 text-sm">
+                <thead>
+                  <tr className="border-b-2 border-slate-800">
+                    <th className="py-3 text-left font-semibold">SKU / Item</th>
+                    <th className="py-3 text-left font-semibold">Description</th>
+                    <th className="py-3 text-center font-semibold">Qty</th>
+                    <th className="py-3 text-right font-semibold">Unit Price</th>
+                    <th className="py-3 text-right font-semibold">Extended Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cart.map((item, idx) => {
+                    const calc = getCalculatedRow(item);
+                    const unitPrice = calc.extendedPrice / item.qty;
+                    return (
+                      <tr key={idx} className="border-b border-slate-200">
+                        <td className="py-3 font-medium text-slate-700">{item.product.SKU}</td>
+                        <td className="py-3 text-slate-600 pr-4">{item.product.Description}</td>
+                        <td className="py-3 text-center">{item.qty}</td>
+                        <td className="py-3 text-right">{formatMoney(unitPrice)}</td>
+                        <td className="py-3 text-right font-semibold">{formatMoney(calc.extendedPrice)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+
+              <div className="flex justify-end">
+                <div className="w-64 border-t-2 border-slate-800 pt-4">
+                  <div className="flex justify-between items-center text-lg font-bold text-slate-800">
+                    <span>Total ({currency}):</span>
+                    <span>{formatMoney(totalAmount)}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-16 text-xs text-slate-400 text-center border-t pt-4">
+                * This quotation is generated automatically and subject to final review. Prices are valid for 30 days.
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // 主要工作區 UI
+      return (
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col relative">
+          
+          {toastMessage && (
+            <div className="fixed top-4 right-4 bg-emerald-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 transition-opacity flex items-center gap-2">
+              <Icon name="Check" size={20} />
+              {toastMessage}
+            </div>
+          )}
+
+          <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+            <div className="px-6 py-3 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <div className="bg-blue-600 p-2 rounded-lg"><Icon name="FileText" size={20} className="text-white"/></div>
+                <h1 className="text-xl font-bold text-slate-800 tracking-tight">Quotation<span className="text-blue-600">Gen</span></h1>
+                {userRole === 'ADMIN' && <span className="ml-2 bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded border border-purple-200 font-semibold">管理員模式</span>}
+              </div>
+              
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-4 bg-slate-100 p-1.5 rounded-lg border border-slate-200">
+                  <div className="flex items-center gap-2 px-2">
+                    <span className="text-xs font-semibold text-slate-500 uppercase">幣別</span>
+                    <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="bg-transparent font-bold text-sm text-slate-800 outline-none cursor-pointer">
+                      <option value="USD">USD</option>
+                      <option value="HKD">HKD</option>
+                    </select>
+                  </div>
+                  <div className="w-px h-5 bg-slate-300"></div>
+                  <div className="flex items-center gap-2 px-2">
+                    <span className="text-xs font-semibold text-slate-500 uppercase">策略</span>
+                    <select value={strategy} onChange={(e) => setStrategy(e.target.value)} className="bg-transparent font-bold text-sm text-slate-800 outline-none cursor-pointer max-w-[200px]">
+                      {Object.keys(STRATEGIES).map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <button onClick={onLogout} className="text-slate-500 hover:text-red-500 transition-colors" title="登出">
+                  <Icon name="LogOut" size={20} />
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="flex-1 p-6 max-w-screen-2xl mx-auto w-full">
+            <div className="flex gap-4 mb-6">
+              <div className="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 mb-1">客戶名稱 (Customer Name)</label>
+                <input 
+                  type="text" placeholder="輸入客戶公司名稱..." value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                />
+              </div>
+              
+              <div className="flex-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative" ref={searchContainerRef}>
+                <label className="block text-xs font-bold text-slate-500 mb-1">極速新增產品 (Typeahead SKU/Desc)</label>
+                <div className="relative">
+                  <Icon name="Search" size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                  <input 
+                    type="text" value={searchQuery}
+                    onChange={(e) => { setSearchQuery(e.target.value); setIsSearching(true); }}
+                    onFocus={() => setIsSearching(true)} disabled={loading}
+                    placeholder={loading ? "載入價單資料中..." : "搜尋 PAN-PA-3220, Palo Alto..."}
+                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all disabled:opacity-50"
+                  />
+                </div>
+
+                {isSearching && searchQuery.trim() !== '' && (
+                  <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-80 overflow-y-auto">
+                    {searchResults.length === 0 ? (
+                      <div className="p-4 text-sm text-slate-500 text-center">找不到匹配的產品</div>
+                    ) : (
+                      searchResults.map(prod => (
+                        <div 
+                          key={prod.SKU} 
+                          className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-b-0 flex justify-between items-center group transition-colors"
+                          onClick={() => addToCart(prod)}
+                        >
+                          <div>
+                            <div className="font-semibold text-sm text-slate-800">{prod.SKU}</div>
+                            <div className="text-xs text-slate-500 truncate max-w-md">{prod.Description}</div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded">{prod.Product_type}</span>
+                            <Icon name="Plus" size={16} className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left whitespace-nowrap">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold w-64">SKU / 描述</th>
+                      <th className="px-4 py-3 font-semibold text-right">List Price<br/>({currency})</th>
+                      <th className="px-4 py-3 font-semibold text-center w-24">Discount<br/>(可覆寫)</th>
+                      <th className="px-4 py-3 font-semibold text-right">Disty Cost</th>
+                      <th className="px-4 py-3 font-semibold text-center w-20">Qty</th>
+                      <th className="px-4 py-3 font-semibold text-center w-24">Margin<br/>(可覆寫)</th>
+                      <th className="px-4 py-3 font-semibold text-right">Incentive<br/>({currency})</th>
+                      <th className="px-4 py-3 font-semibold text-right bg-blue-50 text-blue-800">Extended Price</th>
+                      <th className="px-2 py-3 text-center"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cart.length === 0 ? (
+                      <tr>
+                        <td colSpan="9" className="px-6 py-16 text-center text-slate-400">
+                          <div className="flex flex-col items-center justify-center">
+                            <Icon name="Search" size={32} className="mb-2 opacity-50"/>
+                            <p>報價單目前為空，請從上方搜尋框新增產品。</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      cart.map(item => {
+                        const calc = getCalculatedRow(item);
+                        return (
+                          <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-slate-800">{item.product.SKU}</div>
+                              <div className="text-xs text-slate-500 max-w-[200px] truncate" title={item.product.Description}>
+                                {item.product.Description}
+                              </div>
+                              <div className="text-[10px] bg-slate-200 inline-block px-1 rounded mt-1 text-slate-600">
+                                {item.product.Product_type}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-600 font-mono">{formatMoney(calc.listPrice)}</td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center">
+                                <input type="number" step="0.01" min="0" max="1"
+                                  className="w-16 bg-white border border-slate-300 rounded p-1 text-xs text-center focus:border-blue-500 outline-none"
+                                  value={item.manualDiscount !== null ? item.manualDiscount : calc.appliedDiscount}
+                                  onChange={(e) => updateRow(item.id, 'manualDiscount', e.target.value === '' ? null : parseFloat(e.target.value))}
+                                />
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-600 font-mono">{formatMoney(calc.distyUnitCost)}</td>
+                            <td className="px-4 py-3 text-center">
+                              <input type="number" min="1"
+                                className="w-14 bg-white border border-slate-300 rounded p-1 text-xs text-center focus:border-blue-500 outline-none"
+                                value={item.qty}
+                                onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)}
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                               <input type="number" step="0.01" min="0" max="0.99"
+                                  className="w-16 bg-white border border-slate-300 rounded p-1 text-xs text-center focus:border-blue-500 outline-none"
+                                  value={item.manualMargin !== null ? item.manualMargin : calc.appliedMargin}
+                                  onChange={(e) => updateRow(item.id, 'manualMargin', e.target.value === '' ? null : parseFloat(e.target.value))}
+                                />
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-600 font-mono">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
+                            <td className="px-4 py-3 text-right font-bold text-blue-700 bg-blue-50/50 font-mono">{formatMoney(calc.extendedPrice)}</td>
+                            <td className="px-2 py-3 text-center">
+                              <button onClick={() => removeRow(item.id)} className="text-slate-400 hover:text-red-500 transition-colors p-1">
+                                <Icon name="Trash2" size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-end">
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setIsPreview(true)} disabled={cart.length === 0}
+                  className="bg-white border-2 border-slate-200 text-slate-700 font-semibold px-6 py-2.5 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Icon name="Printer" size={18} /> 預覽 / 列印 PDF
+                </button>
+                <button 
+                  onClick={saveQuotation} disabled={cart.length === 0}
+                  className="bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Icon name="Save" size={18} /> 儲存紀錄 (GAS)
+                </button>
+              </div>
+
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 min-w-[300px]">
+                <div className="text-sm font-semibold text-slate-500 mb-1 uppercase tracking-wider">總金額 Total Amount</div>
+                <div className="text-3xl font-bold text-slate-800 tracking-tight font-mono">{formatMoney(totalAmount)}</div>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 4. 等待 Firebase 載入後啟動 React
+    // ==========================================
+    let isAppRendered = false;
+    
+    const mountReactApp = () => {
+      if (isAppRendered) return;
+      isAppRendered = true;
+      
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) loadingEl.style.display = 'none';
+      
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      // 如果 FirebaseLib 有值就帶入，如果沒值 (例如被 CORS 阻擋) ก็會傳 undefined，交由 App 內部處理 Fallback
+      root.render(<App fb={window.FirebaseLib} />);
+    };
+
+    // 監聽 Firebase 是否成功載入
+    window.addEventListener('firebase-loaded', mountReactApp);
+    window.addEventListener('firebase-failed', mountReactApp);
+
+    // 防護網：如果網路出錯或模組卡住超過 2.5 秒，強制使用模擬模式啟動畫面
+    setTimeout(() => {
+      if (!isAppRendered) {
+        console.warn("模組載入逾時，強制以模擬模式啟動。");
+        mountReactApp();
+      }
+    }, 2500);
+
+  </script>
+</body>
+</html>
