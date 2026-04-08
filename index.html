@@ -444,18 +444,15 @@
       const getCalculatedRow = (item) => {
         const { product, qty, termMonths, manualDiscount, manualMargin, manualListPrice } = item;
         
-        // 處理 $NaN 單價防呆轉換
         let listPriceUSD = Number(product.Unit_list_price);
         if (isNaN(listPriceUSD)) listPriceUSD = 0;
 
         const defaultListPrice = listPriceUSD * exchangeRate;
-        // 如果使用者有手動輸入單價，則優先採用手動單價
         const listPrice = manualListPrice !== null ? manualListPrice : defaultListPrice;
         
         const defaultDiscount = product[STRATEGIES[strategy]] || 0;
         const appliedDiscount = manualDiscount !== null ? manualDiscount : defaultDiscount;
         
-        // 計算 Term Multiplier (用於計算 DISTY COST 的比例)
         let termMultiplier = 1;
         if (termMonths !== 0) {
           const skuUpper = product.SKU.toUpperCase();
@@ -468,7 +465,6 @@
           }
         }
 
-        // 修改後的 Disty Cost 計算邏輯：包含數量與月份比例
         const distyCost = listPrice * (1 - appliedDiscount) * qty * termMultiplier; 
         
         const defaultMargin = strategy === 'VELOCI Program' ? (product.Disty_margin_Veloci || 0.1) : (product.Disty_margin || 0.15);
@@ -479,13 +475,50 @@
         
         let extendedPriceRaw = 0;
         if (appliedMargin < 1) {
-          // 因為 distyCost 已經乘過了 termMultiplier，這裡直接除以 (1 - appliedMargin)
           extendedPriceRaw = (distyCost / (1 - appliedMargin)) + incentivePool;
         }
 
         let extendedPrice = currency === 'HKD' ? Math.round(extendedPriceRaw / 10) * 10 : Math.round(extendedPriceRaw);
         return { listPrice, appliedDiscount, distyCost, appliedMargin, incentivePool, extendedPrice };
       };
+
+      // ==========================================
+      // 【新增】分組邏輯 (Group Cart By Product Class)
+      // ==========================================
+      const groupedCart = useMemo(() => {
+        const CLASS_ORDER = ["Product", "Support", "Subscription", "HW Accessory", "Miscellaneous"];
+        
+        const groups = {
+          "Product": [],
+          "Support": [],
+          "Subscription": [],
+          "HW Accessory": [],
+          "Miscellaneous": [],
+          "Other": [] // 容錯處理：遇到不在預期內的 Class 統一放這裡
+        };
+
+        // 進行分類
+        cart.forEach(item => {
+          const pClass = item.product.Product_class;
+          if (groups[pClass]) {
+            groups[pClass].push(item);
+          } else {
+            groups["Other"].push(item);
+          }
+        });
+
+        const sortedItems = [];
+        
+        // 依照指定順序重組陣列，若該分類下有商品，則插入一個 Header 標題與底下的所有 Items
+        ["Product", "Support", "Subscription", "HW Accessory", "Miscellaneous", "Other"].forEach(c => {
+          if (groups[c] && groups[c].length > 0) {
+            sortedItems.push({ type: 'header', title: c, id: `header-${c}` });
+            sortedItems.push(...groups[c].map(item => ({ type: 'item', ...item })));
+          }
+        });
+        
+        return sortedItems;
+      }, [cart]);
 
       const subTotalAmount = cart.reduce((sum, item) => sum + getCalculatedRow(item).extendedPrice, 0);
       
@@ -512,16 +545,18 @@
           Currency: currency, AppliedStrategy: strategy,
           IsNoIncentive: isNoIncentive, OverallDiscount: appliedOverallDiscount,
           SubTotal: subTotalAmount, TotalAmount: totalAmount,
-          Items: cart.map(item => {
+          // 確保輸出的 JSON 也是依照分組順序排序
+          Items: groupedCart.filter(row => row.type === 'item').map(item => {
             const calc = getCalculatedRow(item);
             return {
+              ProductClass: item.product.Product_class, // 可選：標記在輸出資料中方便後端檢視
               SKU: item.product.SKU, Description: item.product.Description, Qty: item.qty, Term: item.termMonths,
               ListPrice: calc.listPrice, Discount: calc.appliedDiscount, DistyCost: calc.distyCost,
               Margin: calc.appliedMargin, ExtendedPrice: calc.extendedPrice
             };
           })
         };
-        console.log("=== 準備寫入 GAS API ===", JSON.stringify(quotationData, null, 2));
+        console.log("=== 準備寫入 GAS API (已按分類排序) ===", JSON.stringify(quotationData, null, 2));
         setToastMessage('報價單已成功送出！請查看 Console。');
         setTimeout(() => setToastMessage(''), 3000);
       };
@@ -572,20 +607,38 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {cart.map((item, idx) => {
-                    const calc = getCalculatedRow(item);
-                    const unitPrice = calc.extendedPrice / item.qty; 
-                    return (
-                      <tr key={idx} className="border-b border-slate-200">
-                        <td className="py-3 font-medium text-slate-700">{item.product.SKU}</td>
-                        <td className="py-3 text-slate-600 pr-4">{item.product.Description}</td>
-                        <td className="py-3 text-center">{item.qty}</td>
-                        <td className="py-3 text-center">{item.termMonths}</td>
-                        <td className="py-3 text-right">{formatMoney(unitPrice, true)}</td>
-                        <td className="py-3 text-right font-semibold">{formatMoney(calc.extendedPrice, true)}</td>
-                      </tr>
-                    )
-                  })}
+                  {cart.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="py-8 text-center text-slate-400">Empty Quotation</td>
+                    </tr>
+                  ) : (
+                    groupedCart.map((row, idx) => {
+                      // 如果是分類標題，渲染灰色 Header 橫列
+                      if (row.type === 'header') {
+                        return (
+                          <tr key={row.id} className="bg-slate-100 border-y border-slate-300">
+                            <td colSpan="6" className="py-2 px-4 text-xs font-bold text-slate-800 uppercase tracking-wider">
+                              {row.title}
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      const item = row;
+                      const calc = getCalculatedRow(item);
+                      const unitPrice = calc.extendedPrice / item.qty; 
+                      return (
+                        <tr key={item.id} className="border-b border-slate-200">
+                          <td className="py-3 font-medium text-slate-700">{item.product.SKU}</td>
+                          <td className="py-3 text-slate-600 pr-4">{item.product.Description}</td>
+                          <td className="py-3 text-center">{item.qty}</td>
+                          <td className="py-3 text-center">{item.termMonths}</td>
+                          <td className="py-3 text-right">{formatMoney(unitPrice, true)}</td>
+                          <td className="py-3 text-right font-semibold">{formatMoney(calc.extendedPrice, true)}</td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
               <div className="flex justify-end">
@@ -768,7 +821,20 @@
                         </td>
                       </tr>
                     ) : (
-                      cart.map(item => {
+                      groupedCart.map((row, idx) => {
+                        // 處理 Header 標題列
+                        if (row.type === 'header') {
+                          return (
+                            <tr key={row.id} className="bg-slate-200/60 border-y border-slate-300">
+                              <td colSpan="10" className="px-4 py-2 text-[11px] font-bold text-slate-700 tracking-wider uppercase">
+                                {row.title}
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        // 處理實體項目資料
+                        const item = row;
                         const calc = getCalculatedRow(item);
                         return (
                           <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
