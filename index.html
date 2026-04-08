@@ -27,6 +27,9 @@
   <!-- 載入 Babel Standalone 支援 JSX -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
 
+  <!-- 載入 SheetJS 支援 Excel 匯出 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
   <style>
     @media print {
       body { background: white; margin: 0; padding: 0; }
@@ -78,6 +81,7 @@
       Trash2: <><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></>,
       X: <><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
       Check: <><polyline points="20 6 9 17 4 12"/></>,
+      Download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></>,
       FileText: <><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></>,
       ShieldAlert: <><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2-1 4-2 7-2 2.5 0 4.5 1 6 2a1 1 0 0 1 1 1v7z"/><path d="M12 8v4"/><path d="M12 16h.01"/></>
     };
@@ -568,6 +572,50 @@
         }).format(val);
       };
 
+      const exportToExcel = () => {
+        // 建立適用於 SheetJS 的 2D 陣列 (Array of Arrays)
+        const aoa = [
+          ['OFFICIAL QUOTATION'],
+          ['Date:', new Date().toLocaleDateString()],
+          ['Customer:', customerName || '____________________'],
+          ['Currency:', currency],
+          [],
+          ['SKU / Item', 'Description', 'Qty', 'Term (MONTHS)', `Unit Price (${currency})`, `Reseller Extended Price (${currency})`]
+        ];
+
+        // 將分組的購物車資料轉換入陣列
+        groupedCart.forEach(row => {
+          if (row.type === 'header') {
+            aoa.push([row.title]); // 插入分類標題列
+          } else {
+            const calc = getCalculatedRow(row);
+            const unitPrice = calc.extendedPrice / row.qty;
+            aoa.push([
+              row.product.SKU,
+              row.product.Description,
+              row.qty,
+              row.termMonths,
+              unitPrice,
+              calc.extendedPrice
+            ]);
+          }
+        });
+
+        // 插入總額區塊
+        aoa.push([]);
+        if (appliedOverallDiscount.value > 0) {
+          aoa.push(['', '', '', '', 'Subtotal:', subTotalAmount]);
+          aoa.push(['', '', '', '', `Discount (${appliedOverallDiscount.type === '%' ? appliedOverallDiscount.value + '%' : currency}):`, -overallDiscountAmount]);
+        }
+        aoa.push(['', '', '', '', 'Total:', totalAmount]);
+
+        // 建立活頁簿與工作表，並觸發下載
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Quotation");
+        XLSX.writeFile(wb, `Quotation_${customerName || 'Draft'}_${Date.now()}.xlsx`);
+      };
+
       if (isPreview) {
         return (
           <div className="min-h-screen bg-white text-slate-900 font-sans p-8 print:p-0">
@@ -587,9 +635,14 @@
                 <div className="text-right">
                   <p className="font-semibold text-slate-700">Palo Alto Networks Reseller</p>
                   <p className="text-sm text-slate-500">Currency: {currency}</p>
-                  <button onClick={() => window.print()} className="mt-4 no-print bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 ml-auto">
-                    <Icon name="Printer" size={16} /> 列印 PDF
-                  </button>
+                  <div className="mt-4 no-print flex items-center justify-end gap-2">
+                    <button onClick={exportToExcel} className="bg-emerald-600 text-white px-4 py-2 rounded shadow hover:bg-emerald-700 flex items-center gap-2">
+                      <Icon name="Download" size={16} /> 匯出 Excel
+                    </button>
+                    <button onClick={() => window.print()} className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2">
+                      <Icon name="Printer" size={16} /> 列印 PDF
+                    </button>
+                  </div>
                   <button onClick={() => setIsPreview(false)} className="mt-2 no-print text-slate-500 hover:text-slate-800 text-sm flex items-center gap-1 justify-end w-full">
                     <Icon name="X" size={14} /> 退出預覽
                   </button>
