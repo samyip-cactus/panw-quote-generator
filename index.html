@@ -6,7 +6,7 @@
   <title>B2B 報價生成系統</title>
   
   <!-- 載入 Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com" crossorigin="anonymous"></script>
   
   <!-- 全域錯誤攔截器 -->
   <script>
@@ -21,14 +21,14 @@
   </script>
 
   <!-- 載入 React (使用穩定的 cdnjs) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   
   <!-- 載入 Babel Standalone 支援 JSX -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js" crossorigin="anonymous"></script>
 
   <!-- 載入 SheetJS 支援 Excel 匯出 -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
 
   <style>
     @media print {
@@ -311,6 +311,7 @@
       const [searchQuery, setSearchQuery] = useState('');
       const [isSearching, setIsSearching] = useState(false);
       const [isPreview, setIsPreview] = useState(false);
+      const [customerName, setCustomerName] = useState('');
       const [toastMessage, setToastMessage] = useState('');
       
       const [filterProductType, setFilterProductType] = useState(['Production']);
@@ -324,12 +325,10 @@
 
       const searchContainerRef = useRef(null);
 
-      // 當切換全域策略時，自動清空手動覆寫的折扣與毛利
       useEffect(() => {
         setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null, manualListPrice: null })));
       }, [strategy]);
 
-      // 當切換幣別時，對手動修改過的單價進行雙向換算
       const handleCurrencyChange = (e) => {
         const newCurrency = e.target.value;
         if (newCurrency === currency) return;
@@ -486,9 +485,6 @@
         return { listPrice, appliedDiscount, distyCost, appliedMargin, incentivePool, extendedPrice };
       };
 
-      // ==========================================
-      // 【新增】分組邏輯 (Group Cart By Product Class)
-      // ==========================================
       const groupedCart = useMemo(() => {
         const CLASS_ORDER = ["Product", "Support", "Subscription", "HW Accessory", "Miscellaneous"];
         
@@ -498,10 +494,9 @@
           "Subscription": [],
           "HW Accessory": [],
           "Miscellaneous": [],
-          "Other": [] // 容錯處理：遇到不在預期內的 Class 統一放這裡
+          "Other": []
         };
 
-        // 進行分類
         cart.forEach(item => {
           const pClass = item.product.Product_class;
           if (groups[pClass]) {
@@ -513,7 +508,6 @@
 
         const sortedItems = [];
         
-        // 依照指定順序重組陣列，若該分類下有商品，則插入一個 Header 標題與底下的所有 Items
         ["Product", "Support", "Subscription", "HW Accessory", "Miscellaneous", "Other"].forEach(c => {
           if (groups[c] && groups[c].length > 0) {
             sortedItems.push({ type: 'header', title: c, id: `header-${c}` });
@@ -549,11 +543,10 @@
           Currency: currency, AppliedStrategy: strategy,
           IsNoIncentive: isNoIncentive, OverallDiscount: appliedOverallDiscount,
           SubTotal: subTotalAmount, TotalAmount: totalAmount,
-          // 確保輸出的 JSON 也是依照分組順序排序
           Items: groupedCart.filter(row => row.type === 'item').map(item => {
             const calc = getCalculatedRow(item);
             return {
-              ProductClass: item.product.Product_class, // 可選：標記在輸出資料中方便後端檢視
+              ProductClass: item.product.Product_class, 
               SKU: item.product.SKU, Description: item.product.Description, Qty: item.qty, Term: item.termMonths,
               ListPrice: calc.listPrice, Discount: calc.appliedDiscount, DistyCost: calc.distyCost,
               Margin: calc.appliedMargin, ExtendedPrice: calc.extendedPrice
@@ -573,47 +566,57 @@
       };
 
       const exportToExcel = () => {
-        // 建立適用於 SheetJS 的 2D 陣列 (Array of Arrays)
-        const aoa = [
-          ['OFFICIAL QUOTATION'],
-          ['Date:', new Date().toLocaleDateString()],
-          ['Customer:', customerName || '____________________'],
-          ['Currency:', currency],
-          [],
-          ['SKU / Item', 'Description', 'Qty', 'Term (MONTHS)', `Unit Price (${currency})`, `Reseller Extended Price (${currency})`]
-        ];
-
-        // 將分組的購物車資料轉換入陣列
-        groupedCart.forEach(row => {
-          if (row.type === 'header') {
-            aoa.push([row.title]); // 插入分類標題列
-          } else {
-            const calc = getCalculatedRow(row);
-            const unitPrice = calc.extendedPrice / row.qty;
-            aoa.push([
-              row.product.SKU,
-              row.product.Description,
-              row.qty,
-              row.termMonths,
-              unitPrice,
-              calc.extendedPrice
-            ]);
+        try {
+          if (typeof window.XLSX === 'undefined') {
+            alert("Excel 匯出模組尚未載入完成，請確認網路連線或重新整理網頁。");
+            return;
           }
-        });
+          const XLSX = window.XLSX;
 
-        // 插入總額區塊
-        aoa.push([]);
-        if (appliedOverallDiscount.value > 0) {
-          aoa.push(['', '', '', '', 'Subtotal:', subTotalAmount]);
-          aoa.push(['', '', '', '', `Discount (${appliedOverallDiscount.type === '%' ? appliedOverallDiscount.value + '%' : currency}):`, -overallDiscountAmount]);
+          const aoa = [
+            ['OFFICIAL QUOTATION'],
+            ['Date:', new Date().toLocaleDateString()],
+            ['Customer:', customerName || '____________________'],
+            ['Currency:', currency],
+            [],
+            ['SKU / Item', 'Description', 'Qty', 'Term (MONTHS)', `Unit Price (${currency})`, `Reseller Extended Price (${currency})`]
+          ];
+
+          groupedCart.forEach(row => {
+            if (row.type === 'header') {
+              aoa.push([row.title]); 
+            } else {
+              const calc = getCalculatedRow(row);
+              const unitPrice = row.qty > 0 ? calc.extendedPrice / row.qty : 0;
+              aoa.push([
+                row.product.SKU,
+                row.product.Description,
+                row.qty,
+                row.termMonths,
+                unitPrice,
+                calc.extendedPrice
+              ]);
+            }
+          });
+
+          aoa.push([]);
+          if (appliedOverallDiscount.value > 0) {
+            aoa.push(['', '', '', '', 'Subtotal:', subTotalAmount]);
+            aoa.push(['', '', '', '', `Discount (${appliedOverallDiscount.type === '%' ? appliedOverallDiscount.value + '%' : currency}):`, -overallDiscountAmount]);
+          }
+          aoa.push(['', '', '', '', 'Total:', totalAmount]);
+
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Quotation");
+          XLSX.writeFile(wb, `Quotation_${customerName || 'Draft'}_${Date.now()}.xlsx`);
+          
+          setToastMessage('已成功匯出 Excel！');
+          setTimeout(() => setToastMessage(''), 3000);
+        } catch (error) {
+          console.error("Excel Export Error:", error);
+          alert("匯出 Excel 時發生錯誤: " + (error.message || error));
         }
-        aoa.push(['', '', '', '', 'Total:', totalAmount]);
-
-        // 建立活頁簿與工作表，並觸發下載
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Quotation");
-        XLSX.writeFile(wb, `Quotation_${customerName || 'Draft'}_${Date.now()}.xlsx`);
       };
 
       if (isPreview) {
@@ -666,7 +669,6 @@
                     </tr>
                   ) : (
                     groupedCart.map((row, idx) => {
-                      // 如果是分類標題，渲染灰色 Header 橫列
                       if (row.type === 'header') {
                         return (
                           <tr key={row.id} className="bg-slate-100 border-y border-slate-300">
@@ -679,7 +681,7 @@
 
                       const item = row;
                       const calc = getCalculatedRow(item);
-                      const unitPrice = calc.extendedPrice / item.qty; 
+                      const unitPrice = item.qty > 0 ? calc.extendedPrice / item.qty : 0; 
                       return (
                         <tr key={item.id} className="border-b border-slate-200">
                           <td className="py-3 font-medium text-slate-700">{item.product.SKU}</td>
@@ -875,7 +877,6 @@
                       </tr>
                     ) : (
                       groupedCart.map((row, idx) => {
-                        // 處理 Header 標題列
                         if (row.type === 'header') {
                           return (
                             <tr key={row.id} className="bg-slate-200/60 border-y border-slate-300">
@@ -886,7 +887,6 @@
                           );
                         }
 
-                        // 處理實體項目資料
                         const item = row;
                         const calc = getCalculatedRow(item);
                         return (
@@ -897,7 +897,6 @@
                               <div className="text-[9px] bg-slate-200 inline-block px-1 rounded mt-1 text-slate-600">{item.product.Product_type}</div>
                             </td>
                             
-                            {/* UNIT LIST PRICE 變成可覆寫輸入框 (僅限 $NaN 或無效值時可修改) */}
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <span className="text-slate-500 font-bold text-xs">{currency === 'USD' ? '$' : 'HK$'}</span>
