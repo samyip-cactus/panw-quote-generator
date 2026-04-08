@@ -1,0 +1,15 @@
+{
+  "version": "20260409_v1"
+}
+
+**2. `products.json` (3萬筆產品陣列)**
+這是由您的 Google Sheet (GAS) 匯出的一般 JSON 陣列：
+```json
+[
+  {
+    "SKU": "PAN-PA-3220",
+    "Description": "Palo Alto...",
+    ...其他欄位...
+  },
+  ...
+]
