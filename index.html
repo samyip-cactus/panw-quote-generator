@@ -8,7 +8,7 @@
   <!-- 載入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- 全域錯誤攔截器 (避免白畫面找不到原因) -->
+  <!-- 全域錯誤攔截器 -->
   <script>
     window.onerror = function(msg, url, line, col, error) {
       const loadingEl = document.getElementById('loading');
@@ -27,7 +27,6 @@
   <!-- 載入 Babel Standalone 支援 JSX -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
 
-  <!-- 全局樣式補強 (列印樣式) -->
   <style>
     @media print {
       body { background: white; margin: 0; padding: 0; }
@@ -57,10 +56,9 @@
     <div class="font-semibold">系統初始化中...</div>
   </div>
 
-  <!-- React 應用的掛載點 -->
   <div id="root"></div>
 
-  <!-- Firebase 原生模組載入器 (動態載入修正 SyntaxError) -->
+  <!-- Firebase 原生模組載入器 -->
   <script type="module">
     Promise.all([
       import('https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js'),
@@ -75,13 +73,9 @@
     });
   </script>
 
-  <!-- 應用程式主邏輯 -->
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
 
-    // ==========================================
-    // 0. 內建輕量 SVG Icon 元件
-    // ==========================================
     const SVG_PATHS = {
       Search: <><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></>,
       Printer: <><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></>,
@@ -101,9 +95,6 @@
       </svg>
     );
 
-    // ==========================================
-    // 1. 定義常數與假資料
-    // ==========================================
     const STRATEGIES = {
       'Standard': 'Discount_Std',
       'Deal Reg, Registered Partner': 'Discount_DR_Registered',
@@ -115,9 +106,10 @@
       'Renew, Non-incumbent': 'Discount_Renew_base'
     };
 
+    // 調整假資料：將 Hardware 改為 Products，以對齊預設篩選器
     const MOCK_PRODUCTS = [
       {
-        Product_class: "Hardware", Product_group: "Platforms", Model: "PA-3220", SKU: "PAN-PA-3220",
+        Product_class: "Products", Product_group: "Platforms", Model: "PA-3220", SKU: "PAN-PA-3220",
         Description: "Palo Alto Networks PA-3220", Product_type: "Production",
         Unit_list_price: 18000, Term_months: 12, Is_Renew: "FALSE", Is_HA: "FALSE",
         Discount_Std: 0.13, Discount_DR_Registered: 0.29, Discount_DR_Innovator: 0.37, Discount_DR_Platinum: 0.39, Discount_DR_Diamond: 0.41,
@@ -126,7 +118,7 @@
         searchKeywords: ["pan-pa-3220", "pa-3220", "palo alto", "hardware"]
       },
       {
-        Product_class: "Hardware", Product_group: "Platforms", Model: "PA-440", SKU: "PAN-PA-440",
+        Product_class: "Products", Product_group: "Platforms", Model: "PA-440", SKU: "PAN-PA-440",
         Description: "Palo Alto Networks PA-440", Product_type: "Production",
         Unit_list_price: 2000, Term_months: 12, Is_Renew: "FALSE", Is_HA: "FALSE",
         Discount_Std: 0.10, Discount_DR_Registered: 0.25, Discount_DR_Innovator: 0.30, Discount_DR_Platinum: 0.35, Discount_DR_Diamond: 0.40,
@@ -145,9 +137,6 @@
       }
     ];
 
-    // ==========================================
-    // 2. 根元件 (App) 與 Firebase 實例化
-    // ==========================================
     function App({ fb }) {
       const [user, setUser] = useState(null);
       const [appUnlocked, setAppUnlocked] = useState(false);
@@ -155,7 +144,6 @@
       const [products, setProducts] = useState([]);
       const [loading, setLoading] = useState(true);
 
-      // 使用用戶專屬的真實 Firebase Config
       const firebaseConfig = {
         apiKey: "AIzaSyDCY2xS1KH742gaDUDyK18M7LnA8ML0FOs",
         authDomain: "panw-quote-generator.firebaseapp.com",
@@ -166,28 +154,24 @@
         measurementId: "G-0NR1BTLYCJ"
       };
 
-      // 提取模組方法，若 fb 遺失則提供安全後備
       const { 
         initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged,
         getFirestore, collection, doc, setDoc, getDocs 
       } = fb || {};
 
-      // 嘗試初始化 Firebase，失敗時進入本機模擬模式
       const { auth, db, isMockMode } = useMemo(() => {
         if (!fb) return { isMockMode: true };
         try {
           const app = initializeApp(firebaseConfig);
           return { auth: getAuth(app), db: getFirestore(app), isMockMode: false };
         } catch (err) {
-          console.warn("Firebase 初始化失敗，自動切換至本機模擬模式", err);
+          console.warn("Firebase 初始化失敗", err);
           return { isMockMode: true };
         }
       }, [fb]);
 
-      // 驗證狀態監聽
       useEffect(() => {
         if (isMockMode || !auth) {
-          // 本機模式，直接跳過驗證
           setUser({ uid: 'mock-user' });
           return;
         }
@@ -206,7 +190,6 @@
         return () => unsubscribe();
       }, [auth, isMockMode]);
 
-      // 資料讀取
       useEffect(() => {
         if (!user) return;
         
@@ -216,7 +199,6 @@
           return;
         }
         
-        // 直接對應 GAS 寫入的根目錄 'products' 集合
         const productsRef = collection(db, 'products');
         const seedAndFetchData = async () => {
           setLoading(true);
@@ -232,7 +214,7 @@
               setProducts(loadedProducts);
             }
           } catch (err) {
-            console.warn("Firestore 讀取失敗，使用預設假資料保障運作:", err);
+            console.warn("Firestore 讀取失敗", err);
             setProducts(MOCK_PRODUCTS);
           } finally {
             setLoading(false);
@@ -259,11 +241,7 @@
 
       const handleLogout = async () => {
         if (!isMockMode && auth) {
-          try {
-            await signOut(auth);
-          } catch (e) {
-            console.error("登出失敗", e);
-          }
+          try { await signOut(auth); } catch (e) { console.error("登出失敗", e); }
         }
         setAppUnlocked(false);
         setUserRole('GUEST');
@@ -303,22 +281,15 @@
         );
       }
 
-      return (
-        <QuotationEngine 
-          products={products} 
-          loading={loading} 
-          userRole={userRole} 
-          onLogout={handleLogout} 
-        />
-      );
+      return <QuotationEngine products={products} loading={loading} userRole={userRole} onLogout={handleLogout} />;
     }
 
     // ==========================================
     // 3. 報價生成引擎模組
     // ==========================================
     function QuotationEngine({ products, loading, userRole, onLogout }) {
-      const [currency, setCurrency] = useState('HKD'); // 預設貨幣改為 HKD
-      const [strategy, setStrategy] = useState('Standard');
+      const [currency, setCurrency] = useState('HKD');
+      const [strategy, setStrategy] = useState('Deal Reg, Registered Partner'); // 預設改為此項目
       const exchangeRate = currency === 'HKD' ? 7.85 : 1;
       
       const [cart, setCart] = useState([]);
@@ -328,29 +299,57 @@
       const [customerName, setCustomerName] = useState('');
       const [toastMessage, setToastMessage] = useState('');
       
+      // 按鈕篩選器狀態 (預設值)
+      const [filterProductType, setFilterProductType] = useState(['Production']);
+      const [filterProductClass, setFilterProductClass] = useState(['Products', 'Subscription', 'Support']);
+      const [filterIsRenew, setFilterIsRenew] = useState('FALSE'); // FALSE 顯示為 NEW, TRUE 顯示為 RENEW
+
       const searchContainerRef = useRef(null);
 
-      // 當全域策略改變時，自動清空手動覆寫的數值，確保列表數值跟隨策略刷新
       useEffect(() => {
-        setCart(prev => prev.map(item => ({
-          ...item,
-          manualDiscount: null,
-          manualMargin: null
-        })));
+        setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null })));
       }, [strategy]);
 
-      // Typeahead 記憶體過濾
+      // 動態產生篩選器的可用選項 (若資料庫有其他項目也能安全列出，並包含預設項目)
+      const productTypeOptions = useMemo(() => {
+        const types = new Set(products.map(p => p.Product_type).filter(Boolean));
+        if (!types.has('Production')) types.add('Production');
+        return Array.from(types);
+      }, [products]);
+
+      const productClassOptions = useMemo(() => {
+        const classes = new Set(products.map(p => p.Product_class).filter(Boolean));
+        ['Products', 'Subscription', 'Support'].forEach(c => classes.add(c));
+        return Array.from(classes);
+      }, [products]);
+
+      const toggleFilter = (setState, val) => {
+        setState(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
+      };
+
+      // 增強版 Typeahead 搜尋邏輯
       const searchResults = useMemo(() => {
         if (!searchQuery.trim()) return [];
-        const term = searchQuery.toLowerCase();
         
-        return products.filter(p => {
-          const matchSKU = p.SKU?.toLowerCase().includes(term);
-          const matchDesc = p.Description?.toLowerCase().includes(term);
-          const matchKeywords = p.searchKeywords?.some(k => k.toLowerCase().includes(term));
-          return matchSKU || matchDesc || matchKeywords;
+        // 1. 先用按鈕篩選器過濾範圍
+        const preFiltered = products.filter(p => {
+          const matchType = filterProductType.length === 0 || filterProductType.includes(p.Product_type);
+          const matchClass = filterProductClass.length === 0 || filterProductClass.includes(p.Product_class);
+          const matchRenew = p.Is_Renew === filterIsRenew;
+          return matchType && matchClass && matchRenew;
+        });
+
+        // 2. 搜尋關鍵字 (空格作為 OR 切割)
+        const terms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+        
+        return preFiltered.filter(p => {
+          const sku = p.SKU?.toLowerCase() || '';
+          const desc = p.Description?.toLowerCase() || '';
+          
+          // OR 邏輯：只要任一個關鍵字命中 SKU 或 Description 即符合
+          return terms.some(term => sku.includes(term) || desc.includes(term));
         }).slice(0, 20);
-      }, [searchQuery, products]);
+      }, [searchQuery, products, filterProductType, filterProductClass, filterIsRenew]);
 
       useEffect(() => {
         const handleClickOutside = (event) => {
@@ -365,116 +364,70 @@
       const addToCart = (product) => {
         const newItemId = `${product.SKU}_${Date.now()}`;
         setCart(prev => [...prev, {
-          id: newItemId,
-          product: product,
-          qty: 1,
-          manualDiscount: null,
-          manualMargin: null
+          id: newItemId, product, qty: 1, manualDiscount: null, manualMargin: null
         }]);
         setSearchQuery('');
         setIsSearching(false);
       };
 
       const removeRow = (id) => setCart(prev => prev.filter(item => item.id !== id));
-
       const updateRow = (id, field, value) => {
-        setCart(prev => prev.map(item => {
-          if (item.id === id) return { ...item, [field]: value };
-          return item;
-        }));
+        setCart(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
       };
 
       const getCalculatedRow = (item) => {
         const { product, qty, manualDiscount, manualMargin } = item;
+        const listPrice = (product.Unit_list_price || 0) * exchangeRate;
         
-        const listPriceUSD = product.Unit_list_price || 0;
-        const listPrice = listPriceUSD * exchangeRate;
-        
-        const strategyDiscountField = STRATEGIES[strategy];
-        const defaultDiscount = product[strategyDiscountField] || 0;
+        const defaultDiscount = product[STRATEGIES[strategy]] || 0;
         const appliedDiscount = manualDiscount !== null ? manualDiscount : defaultDiscount;
-        
-        // DISTY COST = LIST PRICE * (1 - DISCOUNT) * QTY
         const distyCost = listPrice * (1 - appliedDiscount) * qty;
         
-        const defaultMargin = strategy === 'VELOCI Program' 
-          ? (product.Disty_margin_Veloci || 0.1) 
-          : (product.Disty_margin || 0.15);
+        const defaultMargin = strategy === 'VELOCI Program' ? (product.Disty_margin_Veloci || 0.1) : (product.Disty_margin || 0.15);
         const appliedMargin = manualMargin !== null ? manualMargin : defaultMargin;
         
-        const incentiveUSD = (product.Incentive_coupon || 0) + (product.Incentive_gift || 0);
-        const incentivePool = incentiveUSD * exchangeRate;
+        const incentivePool = ((product.Incentive_coupon || 0) + (product.Incentive_gift || 0)) * exchangeRate;
         
         let extendedPriceRaw = 0;
-        if (appliedMargin < 1) {
-          extendedPriceRaw = (distyCost / (1 - appliedMargin)) + incentivePool;
-        }
+        if (appliedMargin < 1) extendedPriceRaw = (distyCost / (1 - appliedMargin)) + incentivePool;
 
-        // RESELLER EXTENDED PRICE 的四捨五入邏輯
-        let extendedPrice = extendedPriceRaw;
-        if (currency === 'HKD') {
-          // HKD 捨入到十位數 (例：1234 -> 1230)
-          extendedPrice = Math.round(extendedPriceRaw / 10) * 10;
-        } else {
-          // USD 捨入到個位數 (例：1234.5 -> 1235)
-          extendedPrice = Math.round(extendedPriceRaw);
-        }
-
+        let extendedPrice = currency === 'HKD' ? Math.round(extendedPriceRaw / 10) * 10 : Math.round(extendedPriceRaw);
         return { listPrice, appliedDiscount, distyCost, appliedMargin, incentivePool, extendedPrice };
       };
 
-      // 總額與拆解細項計算
       const totalAmount = cart.reduce((sum, item) => sum + getCalculatedRow(item).extendedPrice, 0);
       const totalBookingToVendor = cart.reduce((sum, item) => sum + getCalculatedRow(item).distyCost, 0);
       const totalOtherCost = cart.reduce((sum, item) => sum + getCalculatedRow(item).incentivePool, 0);
-      
-      // 更新 GROSS MARGIN 計算公式：TOTAL AMOUNT - BOOKING TO VENDOR - OTHER COST
       const totalGrossMarginAmount = totalAmount - totalBookingToVendor - totalOtherCost;
       const totalGrossMarginPercent = totalAmount > 0 ? (totalGrossMarginAmount / totalAmount) * 100 : 0;
 
       const saveQuotation = () => {
         if (cart.length === 0) return;
-        
         const quotationData = {
           QuoteID: `QT-${Date.now().toString().slice(-6)}`,
           Date: new Date().toISOString(),
-          CustomerName: customerName || 'Unknown',
-          Currency: currency,
-          AppliedStrategy: strategy,
-          TotalAmount: totalAmount,
+          CustomerName: customerName || 'Unknown', Currency: currency, AppliedStrategy: strategy, TotalAmount: totalAmount,
           Items: cart.map(item => {
             const calc = getCalculatedRow(item);
             return {
-              SKU: item.product.SKU,
-              Description: item.product.Description,
-              Qty: item.qty,
-              ListPrice: calc.listPrice,
-              Discount: calc.appliedDiscount,
-              DistyCost: calc.distyCost,
-              Margin: calc.appliedMargin,
-              ExtendedPrice: calc.extendedPrice
+              SKU: item.product.SKU, Description: item.product.Description, Qty: item.qty,
+              ListPrice: calc.listPrice, Discount: calc.appliedDiscount, DistyCost: calc.distyCost,
+              Margin: calc.appliedMargin, ExtendedPrice: calc.extendedPrice
             };
           })
         };
-
-        console.log("=== 準備寫入 GAS API 的報價資料 ===");
-        console.log(JSON.stringify(quotationData, null, 2));
-        
+        console.log("=== 準備寫入 GAS API ===", JSON.stringify(quotationData, null, 2));
         setToastMessage('報價單已成功送出！請查看 Console。');
         setTimeout(() => setToastMessage(''), 3000);
       };
 
-      // 格式化貨幣 (支援設定隱藏小數位)
       const formatMoney = (val, hideDecimals = false) => {
         return new Intl.NumberFormat('en-US', {
-          style: 'currency', 
-          currency: currency, 
-          minimumFractionDigits: hideDecimals ? 0 : 2,
-          maximumFractionDigits: hideDecimals ? 0 : 2
+          style: 'currency', currency: currency, 
+          minimumFractionDigits: hideDecimals ? 0 : 2, maximumFractionDigits: hideDecimals ? 0 : 2
         }).format(val);
       };
 
-      // 預覽列印模式 UI
       if (isPreview) {
         return (
           <div className="min-h-screen bg-white text-slate-900 font-sans p-8 print:p-0">
@@ -488,73 +441,55 @@
                 <div className="text-right">
                   <p className="font-semibold text-slate-700">Palo Alto Networks Reseller</p>
                   <p className="text-sm text-slate-500">Currency: {currency}</p>
-                  <button 
-                    onClick={() => window.print()}
-                    className="mt-4 no-print bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 ml-auto"
-                  >
+                  <button onClick={() => window.print()} className="mt-4 no-print bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 ml-auto">
                     <Icon name="Printer" size={16} /> 列印 PDF
                   </button>
-                  <button 
-                    onClick={() => setIsPreview(false)}
-                    className="mt-2 no-print text-slate-500 hover:text-slate-800 text-sm flex items-center gap-1 justify-end w-full"
-                  >
+                  <button onClick={() => setIsPreview(false)} className="mt-2 no-print text-slate-500 hover:text-slate-800 text-sm flex items-center gap-1 justify-end w-full">
                     <Icon name="X" size={14} /> 退出預覽
                   </button>
                 </div>
               </div>
-
               <table className="w-full border-collapse mb-8 text-sm">
                 <thead>
                   <tr className="border-b-2 border-slate-800">
-                    <th className="py-3 text-left font-semibold">SKU / Item</th>
-                    <th className="py-3 text-left font-semibold">Description</th>
-                    <th className="py-3 text-center font-semibold">Qty</th>
-                    <th className="py-3 text-right font-semibold">Unit Price ({currency})</th>
+                    <th className="py-3 text-left font-semibold">SKU / Item</th><th className="py-3 text-left font-semibold">Description</th>
+                    <th className="py-3 text-center font-semibold">Qty</th><th className="py-3 text-right font-semibold">Unit Price ({currency})</th>
                     <th className="py-3 text-right font-semibold">Reseller Extended Price ({currency})</th>
                   </tr>
                 </thead>
                 <tbody>
                   {cart.map((item, idx) => {
                     const calc = getCalculatedRow(item);
-                    const unitPrice = calc.extendedPrice / item.qty;
                     return (
                       <tr key={idx} className="border-b border-slate-200">
                         <td className="py-3 font-medium text-slate-700">{item.product.SKU}</td>
                         <td className="py-3 text-slate-600 pr-4">{item.product.Description}</td>
                         <td className="py-3 text-center">{item.qty}</td>
-                        <td className="py-3 text-right">{formatMoney(unitPrice, true)}</td>
+                        <td className="py-3 text-right">{formatMoney(calc.extendedPrice / item.qty, true)}</td>
                         <td className="py-3 text-right font-semibold">{formatMoney(calc.extendedPrice, true)}</td>
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
-
               <div className="flex justify-end">
                 <div className="w-64 border-t-2 border-slate-800 pt-4">
                   <div className="flex justify-between items-center text-lg font-bold text-slate-800">
-                    <span>Total ({currency}):</span>
-                    <span>{formatMoney(totalAmount, true)}</span>
+                    <span>Total ({currency}):</span><span>{formatMoney(totalAmount, true)}</span>
                   </div>
                 </div>
               </div>
-              
-              <div className="mt-16 text-xs text-slate-400 text-center border-t pt-4">
-                * This quotation is generated automatically and subject to final review. Prices are valid for 30 days.
-              </div>
+              <div className="mt-16 text-xs text-slate-400 text-center border-t pt-4">* This quotation is generated automatically and subject to final review. Prices are valid for 30 days.</div>
             </div>
           </div>
         );
       }
 
-      // 主要工作區 UI
       return (
         <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col relative">
-          
           {toastMessage && (
             <div className="fixed top-4 right-4 bg-emerald-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 transition-opacity flex items-center gap-2">
-              <Icon name="Check" size={20} />
-              {toastMessage}
+              <Icon name="Check" size={20} />{toastMessage}
             </div>
           )}
 
@@ -571,22 +506,18 @@
                   <div className="flex items-center gap-2 px-2">
                     <span className="text-xs font-semibold text-slate-500 uppercase">幣別</span>
                     <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="bg-transparent font-bold text-sm text-slate-800 outline-none cursor-pointer">
-                      <option value="HKD">HKD</option>
-                      <option value="USD">USD</option>
+                      <option value="HKD">HKD</option><option value="USD">USD</option>
                     </select>
                   </div>
                   <div className="w-px h-5 bg-slate-300"></div>
                   <div className="flex items-center gap-2 px-2">
-                    <span className="text-xs font-semibold text-slate-500 uppercase">策略</span>
+                    <span className="text-xs font-semibold text-slate-500 uppercase">預設定價</span>
                     <select value={strategy} onChange={(e) => setStrategy(e.target.value)} className="bg-transparent font-bold text-sm text-slate-800 outline-none cursor-pointer max-w-[200px]">
                       {Object.keys(STRATEGIES).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                 </div>
-
-                <button onClick={onLogout} className="text-slate-500 hover:text-red-500 transition-colors" title="登出">
-                  <Icon name="LogOut" size={20} />
-                </button>
+                <button onClick={onLogout} className="text-slate-500 hover:text-red-500 transition-colors" title="登出"><Icon name="LogOut" size={20} /></button>
               </div>
             </div>
           </header>
@@ -595,37 +526,57 @@
             <div className="flex gap-4 mb-6">
               <div className="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
                 <label className="block text-xs font-bold text-slate-500 mb-1">客戶名稱 (Customer Name)</label>
-                <input 
-                  type="text" placeholder="輸入客戶公司名稱..." value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                />
+                <input type="text" placeholder="輸入客戶公司名稱..." value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" />
               </div>
               
               <div className="flex-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative" ref={searchContainerRef}>
-                <label className="block text-xs font-bold text-slate-500 mb-1">極速新增產品 (Typeahead SKU/Desc)</label>
-                <div className="relative">
-                  <Icon name="Search" size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-                  <input 
-                    type="text" value={searchQuery}
-                    onChange={(e) => { setSearchQuery(e.target.value); setIsSearching(true); }}
-                    onFocus={() => setIsSearching(true)} disabled={loading}
-                    placeholder={loading ? "載入價單資料中..." : "搜尋 PAN-PA-3220, Palo Alto..."}
-                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all disabled:opacity-50"
-                  />
+                <label className="block text-xs font-bold text-slate-500 mb-3">極速新增產品 (Typeahead SKU/Desc)</label>
+                
+                {/* 搜尋條件按鈕區 */}
+                <div className="flex flex-col gap-2 mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase w-28 shrink-0">Product Type:</span>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {productTypeOptions.map(opt => (
+                        <button key={opt} onClick={() => toggleFilter(setFilterProductType, opt)}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded border transition-colors ${filterProductType.includes(opt) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+                        >{opt}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase w-28 shrink-0">Product Class:</span>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {productClassOptions.map(opt => (
+                        <button key={opt} onClick={() => toggleFilter(setFilterProductClass, opt)}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded border transition-colors ${filterProductClass.includes(opt) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+                        >{opt}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase w-28 shrink-0">New / Renew:</span>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setFilterIsRenew('FALSE')} className={`px-2.5 py-1 text-[11px] font-semibold rounded border transition-colors ${filterIsRenew === 'FALSE' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>NEW</button>
+                      <button onClick={() => setFilterIsRenew('TRUE')} className={`px-2.5 py-1 text-[11px] font-semibold rounded border transition-colors ${filterIsRenew === 'TRUE' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>RENEW</button>
+                    </div>
+                  </div>
                 </div>
 
+                {/* 搜尋列 */}
+                <div className="relative">
+                  <Icon name="Search" size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                  <input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setIsSearching(true); }} onFocus={() => setIsSearching(true)} disabled={loading} placeholder={loading ? "載入價單資料中..." : "以空格分隔關鍵字進行 OR 搜尋 (例: pa-440 subscription)"} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all disabled:opacity-50" />
+                </div>
+
+                {/* Typeahead 選單 */}
                 {isSearching && searchQuery.trim() !== '' && (
                   <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-80 overflow-y-auto">
                     {searchResults.length === 0 ? (
-                      <div className="p-4 text-sm text-slate-500 text-center">找不到匹配的產品</div>
+                      <div className="p-4 text-sm text-slate-500 text-center">找不到匹配的產品 (請確認上方篩選器範圍)</div>
                     ) : (
                       searchResults.map(prod => (
-                        <div 
-                          key={prod.SKU} 
-                          className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-b-0 flex justify-between items-center group transition-colors"
-                          onClick={() => addToCart(prod)}
-                        >
+                        <div key={prod.SKU} onClick={() => addToCart(prod)} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-b-0 flex justify-between items-center group transition-colors">
                           <div>
                             <div className="font-semibold text-sm text-slate-800">{prod.SKU}</div>
                             <div className="text-xs text-slate-500 truncate max-w-md">{prod.Description}</div>
@@ -675,16 +626,10 @@
                           <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                             <td className="px-4 py-3">
                               <div className="font-semibold text-slate-800">{item.product.SKU}</div>
-                              <div className="text-xs text-slate-500 max-w-[200px] truncate" title={item.product.Description}>
-                                {item.product.Description}
-                              </div>
-                              <div className="text-[10px] bg-slate-200 inline-block px-1 rounded mt-1 text-slate-600">
-                                {item.product.Product_type}
-                              </div>
+                              <div className="text-xs text-slate-500 max-w-[200px] truncate" title={item.product.Description}>{item.product.Description}</div>
+                              <div className="text-[10px] bg-slate-200 inline-block px-1 rounded mt-1 text-slate-600">{item.product.Product_type}</div>
                             </td>
                             <td className="px-4 py-3 text-right text-slate-600 font-mono">{formatMoney(calc.listPrice)}</td>
-                            
-                            {/* DISCOUNT 百分比輸入框 */}
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <input type="number" step="0.1" min="0" max="100"
@@ -695,17 +640,11 @@
                                 <span className="text-slate-500 font-bold">%</span>
                               </div>
                             </td>
-                            
                             <td className="px-4 py-3 text-right text-slate-600 font-mono">{formatMoney(calc.distyCost)}</td>
                             <td className="px-4 py-3 text-center">
-                              <input type="number" min="1"
-                                className="w-14 bg-white border border-slate-300 rounded p-1 text-xs text-center focus:border-blue-500 outline-none"
-                                value={item.qty}
-                                onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)}
-                              />
+                              <input type="number" min="1" className="w-14 bg-white border border-slate-300 rounded p-1 text-xs text-center focus:border-blue-500 outline-none"
+                                value={item.qty} onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)} />
                             </td>
-                            
-                            {/* MARGIN 百分比輸入框 */}
                             <td className="px-4 py-3 text-center">
                                <div className="flex items-center justify-center gap-1">
                                  <input type="number" step="0.1" min="0" max="100"
@@ -716,13 +655,10 @@
                                   <span className="text-slate-500 font-bold">%</span>
                                </div>
                             </td>
-                            
                             <td className="px-4 py-3 text-right text-slate-600 font-mono">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
                             <td className="px-4 py-3 text-right font-bold text-blue-700 bg-blue-50/50 font-mono">{formatMoney(calc.extendedPrice, true)}</td>
                             <td className="px-2 py-3 text-center">
-                              <button onClick={() => removeRow(item.id)} className="text-slate-400 hover:text-red-500 transition-colors p-1">
-                                <Icon name="Trash2" size={16} />
-                              </button>
+                              <button onClick={() => removeRow(item.id)} className="text-slate-400 hover:text-red-500 transition-colors p-1"><Icon name="Trash2" size={16} /></button>
                             </td>
                           </tr>
                         );
@@ -735,42 +671,34 @@
 
             <div className="flex justify-between items-start">
               <div className="flex gap-3 mt-1">
-                <button 
-                  onClick={() => setIsPreview(true)} disabled={cart.length === 0}
-                  className="bg-white border-2 border-slate-200 text-slate-700 font-semibold px-6 py-2.5 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={() => setIsPreview(true)} disabled={cart.length === 0} className="bg-white border-2 border-slate-200 text-slate-700 font-semibold px-6 py-2.5 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
                   <Icon name="Printer" size={18} /> 預覽 / 列印 PDF
                 </button>
-                <button 
-                  onClick={saveQuotation} disabled={cart.length === 0}
-                  className="bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={saveQuotation} disabled={cart.length === 0} className="bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed">
                   <Icon name="Save" size={18} /> 儲存紀錄 (GAS)
                 </button>
               </div>
 
-              {/* 總額與拆解區塊 */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 min-w-[360px] flex flex-col gap-3">
                 <div className="flex justify-between items-center">
                   <div className="text-sm font-semibold text-slate-500 uppercase tracking-wider">總金額 Total Amount</div>
                   <div className="text-3xl font-bold text-slate-800 tracking-tight font-mono">{formatMoney(totalAmount, true)}</div>
                 </div>
                 
-                {/* 成本拆解與毛利細項 */}
                 <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">BOOKING TO VENDOR ({currency})</span>
-                    <span className="text-sm font-mono font-medium text-slate-700">{formatMoney(totalBookingToVendor, true)}</span>
+                    <span className="text-xs font-mono font-medium text-slate-700">{formatMoney(totalBookingToVendor, true)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">OTHER COST ({currency})</span>
-                    <span className="text-sm font-mono font-medium text-slate-700">{formatMoney(totalOtherCost, true)}</span>
+                    <span className="text-xs font-mono font-medium text-slate-700">{formatMoney(totalOtherCost, true)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">GROSS MARGIN ({currency})</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-mono font-bold text-slate-800">{formatMoney(totalGrossMarginAmount, true)}</span>
-                      <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                      <span className="text-xs font-mono font-bold text-slate-800">{formatMoney(totalGrossMarginAmount, true)}</span>
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
                         ({totalGrossMarginPercent.toFixed(1)}%)
                       </span>
                     </div>
@@ -783,35 +711,25 @@
       );
     }
 
-    // ==========================================
-    // 4. 等待 Firebase 載入後啟動 React
-    // ==========================================
     let isAppRendered = false;
-    
     const mountReactApp = () => {
       if (isAppRendered) return;
       isAppRendered = true;
-      
       const loadingEl = document.getElementById('loading');
       if (loadingEl) loadingEl.style.display = 'none';
-      
       const root = ReactDOM.createRoot(document.getElementById('root'));
-      // 如果 FirebaseLib 有值就帶入，如果沒值 (例如被 CORS 阻擋) ก็會傳 undefined，交由 App 內部處理 Fallback
       root.render(<App fb={window.FirebaseLib} />);
     };
 
-    // 監聽 Firebase 是否成功載入
     window.addEventListener('firebase-loaded', mountReactApp);
     window.addEventListener('firebase-failed', mountReactApp);
 
-    // 防護網：如果網路出錯或模組卡住超過 2.5 秒，強制使用模擬模式啟動畫面
     setTimeout(() => {
       if (!isAppRendered) {
         console.warn("模組載入逾時，強制以模擬模式啟動。");
         mountReactApp();
       }
     }, 2500);
-
   </script>
 </body>
 </html>
