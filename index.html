@@ -454,7 +454,22 @@
         
         const defaultDiscount = product[STRATEGIES[strategy]] || 0;
         const appliedDiscount = manualDiscount !== null ? manualDiscount : defaultDiscount;
-        const distyCost = listPrice * (1 - appliedDiscount) * qty; 
+        
+        // 計算 Term Multiplier (用於計算 DISTY COST 的比例)
+        let termMultiplier = 1;
+        if (termMonths !== 0) {
+          const skuUpper = product.SKU.toUpperCase();
+          if (skuUpper.includes('-3YR')) {
+            termMultiplier = termMonths / 36;
+          } else if (skuUpper.includes('-5YR')) {
+            termMultiplier = termMonths / 60;
+          } else {
+            termMultiplier = termMonths / 12;
+          }
+        }
+
+        // 修改後的 Disty Cost 計算邏輯：包含數量與月份比例
+        const distyCost = listPrice * (1 - appliedDiscount) * qty * termMultiplier; 
         
         const defaultMargin = strategy === 'VELOCI Program' ? (product.Disty_margin_Veloci || 0.1) : (product.Disty_margin || 0.15);
         const appliedMargin = manualMargin !== null ? manualMargin : defaultMargin;
@@ -464,23 +479,8 @@
         
         let extendedPriceRaw = 0;
         if (appliedMargin < 1) {
-          const baseExt = distyCost / (1 - appliedMargin);
-          let termMultiplier = 1;
-
-          if (termMonths !== 0) {
-            const skuUpper = product.SKU.toUpperCase();
-            if (skuUpper.includes('-3YR')) {
-              termMultiplier = termMonths / 36;
-            } else if (skuUpper.includes('-5YR')) {
-              termMultiplier = termMonths / 60;
-            } else {
-              termMultiplier = termMonths / 12;
-            }
-          } else {
-            termMultiplier = 1; 
-          }
-
-          extendedPriceRaw = (baseExt * termMultiplier) + incentivePool;
+          // 因為 distyCost 已經乘過了 termMultiplier，這裡直接除以 (1 - appliedMargin)
+          extendedPriceRaw = (distyCost / (1 - appliedMargin)) + incentivePool;
         }
 
         let extendedPrice = currency === 'HKD' ? Math.round(extendedPriceRaw / 10) * 10 : Math.round(extendedPriceRaw);
