@@ -106,10 +106,10 @@
       'Renew, Non-incumbent': 'Discount_Renew_base'
     };
 
-    // 調整假資料：將 Hardware 改為 Products，以對齊預設篩選器
+    // 調整假資料：將 Products 改為 Product
     const MOCK_PRODUCTS = [
       {
-        Product_class: "Products", Product_group: "Platforms", Model: "PA-3220", SKU: "PAN-PA-3220",
+        Product_class: "Product", Product_group: "Platforms", Model: "PA-3220", SKU: "PAN-PA-3220",
         Description: "Palo Alto Networks PA-3220", Product_type: "Production",
         Unit_list_price: 18000, Term_months: 12, Is_Renew: "FALSE", Is_HA: "FALSE",
         Discount_Std: 0.13, Discount_DR_Registered: 0.29, Discount_DR_Innovator: 0.37, Discount_DR_Platinum: 0.39, Discount_DR_Diamond: 0.41,
@@ -118,7 +118,7 @@
         searchKeywords: ["pan-pa-3220", "pa-3220", "palo alto", "hardware"]
       },
       {
-        Product_class: "Products", Product_group: "Platforms", Model: "PA-440", SKU: "PAN-PA-440",
+        Product_class: "Product", Product_group: "Platforms", Model: "PA-440", SKU: "PAN-PA-440",
         Description: "Palo Alto Networks PA-440", Product_type: "Production",
         Unit_list_price: 2000, Term_months: 12, Is_Renew: "FALSE", Is_HA: "FALSE",
         Discount_Std: 0.10, Discount_DR_Registered: 0.25, Discount_DR_Innovator: 0.30, Discount_DR_Platinum: 0.35, Discount_DR_Diamond: 0.40,
@@ -210,7 +210,8 @@
               }
               setProducts(MOCK_PRODUCTS);
             } else {
-              const loadedProducts = snapshot.docs.map(d => ({ ...d.data() }));
+              // 確保加入 Document ID (id) 以支援 Firestore 檢索
+              const loadedProducts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
               setProducts(loadedProducts);
             }
           } catch (err) {
@@ -289,7 +290,7 @@
     // ==========================================
     function QuotationEngine({ products, loading, userRole, onLogout }) {
       const [currency, setCurrency] = useState('HKD');
-      const [strategy, setStrategy] = useState('Deal Reg, Registered Partner'); // 預設改為此項目
+      const [strategy, setStrategy] = useState('Deal Reg, Registered Partner');
       const exchangeRate = currency === 'HKD' ? 7.85 : 1;
       
       const [cart, setCart] = useState([]);
@@ -299,10 +300,10 @@
       const [customerName, setCustomerName] = useState('');
       const [toastMessage, setToastMessage] = useState('');
       
-      // 按鈕篩選器狀態 (預設值)
+      // 按鈕篩選器狀態 (根據需求更新了 Product)
       const [filterProductType, setFilterProductType] = useState(['Production']);
-      const [filterProductClass, setFilterProductClass] = useState(['Products', 'Subscription', 'Support']);
-      const [filterIsRenew, setFilterIsRenew] = useState('FALSE'); // FALSE 顯示為 NEW, TRUE 顯示為 RENEW
+      const [filterProductClass, setFilterProductClass] = useState(['Product', 'Subscription', 'Support']);
+      const [filterIsRenew, setFilterIsRenew] = useState('FALSE');
 
       const searchContainerRef = useRef(null);
 
@@ -310,7 +311,7 @@
         setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null })));
       }, [strategy]);
 
-      // 動態產生篩選器的可用選項 (若資料庫有其他項目也能安全列出，並包含預設項目)
+      // 動態產生選項並加入預設值
       const productTypeOptions = useMemo(() => {
         const types = new Set(products.map(p => p.Product_type).filter(Boolean));
         if (!types.has('Production')) types.add('Production');
@@ -319,7 +320,7 @@
 
       const productClassOptions = useMemo(() => {
         const classes = new Set(products.map(p => p.Product_class).filter(Boolean));
-        ['Products', 'Subscription', 'Support'].forEach(c => classes.add(c));
+        ['Product', 'Subscription', 'Support'].forEach(c => classes.add(c));
         return Array.from(classes);
       }, [products]);
 
@@ -327,7 +328,7 @@
         setState(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
       };
 
-      // 增強版 Typeahead 搜尋邏輯
+      // 優化後的 Typeahead 搜尋邏輯
       const searchResults = useMemo(() => {
         if (!searchQuery.trim()) return [];
         
@@ -335,7 +336,12 @@
         const preFiltered = products.filter(p => {
           const matchType = filterProductType.length === 0 || filterProductType.includes(p.Product_type);
           const matchClass = filterProductClass.length === 0 || filterProductClass.includes(p.Product_class);
-          const matchRenew = p.Is_Renew === filterIsRenew;
+          
+          // 修正: 兼容 Firestore 傳回的布林值與字串 ("TRUE", true, "FALSE", false)
+          const isRenewProduct = p.Is_Renew === true || String(p.Is_Renew).toUpperCase() === 'TRUE';
+          const isFilterRenew = filterIsRenew === 'TRUE';
+          const matchRenew = isRenewProduct === isFilterRenew;
+          
           return matchType && matchClass && matchRenew;
         });
 
@@ -343,11 +349,12 @@
         const terms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
         
         return preFiltered.filter(p => {
-          const sku = p.SKU?.toLowerCase() || '';
-          const desc = p.Description?.toLowerCase() || '';
+          // 加入 Document_ID (id) 與 SKU
+          const docId = (p.id || p.SKU || '').toLowerCase();
+          const desc = (p.Description || '').toLowerCase();
           
-          // OR 邏輯：只要任一個關鍵字命中 SKU 或 Description 即符合
-          return terms.some(term => sku.includes(term) || desc.includes(term));
+          // OR 邏輯：只要任一個關鍵字命中 docId (SKU) 或 Description 即符合
+          return terms.some(term => docId.includes(term) || desc.includes(term));
         }).slice(0, 20);
       }, [searchQuery, products, filterProductType, filterProductClass, filterIsRenew]);
 
