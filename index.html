@@ -320,9 +320,10 @@
 
       const searchContainerRef = useRef(null);
 
+      // 當切換全域策略或幣別時，自動清空手動覆寫項目
       useEffect(() => {
-        setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null })));
-      }, [strategy]);
+        setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null, manualListPrice: null })));
+      }, [strategy, currency]);
 
       const productTypeOptions = useMemo(() => {
         const types = new Set(products.map(p => p.Product_type).filter(Boolean));
@@ -382,7 +383,7 @@
         if (skuUpper.includes('-5YR') && initialTerm < 60) initialTerm = 60;
 
         setCart(prev => [...prev, {
-          id: newItemId, product, qty: 1, termMonths: initialTerm, manualDiscount: null, manualMargin: null
+          id: newItemId, product, qty: 1, termMonths: initialTerm, manualDiscount: null, manualMargin: null, manualListPrice: null
         }]);
         setSearchQuery('');
         setIsSearching(false);
@@ -414,9 +415,22 @@
         }
       };
 
+      const handleResetOverallDiscount = () => {
+        setDiscountType('%');
+        setDiscountInput('');
+        setAppliedOverallDiscount({ type: '%', value: 0 });
+      };
+
       const getCalculatedRow = (item) => {
-        const { product, qty, termMonths, manualDiscount, manualMargin } = item;
-        const listPrice = (product.Unit_list_price || 0) * exchangeRate;
+        const { product, qty, termMonths, manualDiscount, manualMargin, manualListPrice } = item;
+        
+        // 處理 $NaN 單價防呆轉換
+        let listPriceUSD = Number(product.Unit_list_price);
+        if (isNaN(listPriceUSD)) listPriceUSD = 0;
+
+        const defaultListPrice = listPriceUSD * exchangeRate;
+        // 如果使用者有手動輸入單價，則優先採用手動單價
+        const listPrice = manualListPrice !== null ? manualListPrice : defaultListPrice;
         
         const defaultDiscount = product[STRATEGIES[strategy]] || 0;
         const appliedDiscount = manualDiscount !== null ? manualDiscount : defaultDiscount;
@@ -532,7 +546,7 @@
                     <th className="py-3 text-left font-semibold">SKU / Item</th>
                     <th className="py-3 text-left font-semibold">Description</th>
                     <th className="py-3 text-center font-semibold">Qty</th>
-                    <th className="py-3 text-center font-semibold">Term (M)</th>
+                    <th className="py-3 text-center font-semibold">Term (MONTHS)</th>
                     <th className="py-3 text-right font-semibold">Unit Price ({currency})</th>
                     <th className="py-3 text-right font-semibold">Reseller Extended Price ({currency})</th>
                   </tr>
@@ -617,10 +631,12 @@
 
           <main className="flex-1 p-6 max-w-screen-2xl mx-auto w-full">
             <div className="flex gap-4 mb-6">
+              {/* 全域設定區 */}
               <div className="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center gap-3">
                 <label className="block text-xs font-bold text-slate-500 uppercase">全域設定 (Global Settings)</label>
                 <div className="flex flex-col gap-3">
-                  <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-600">獎勵池設定:</span>
                     <button 
                       onClick={() => setIsNoIncentive(!isNoIncentive)}
                       className={`px-3 py-1.5 text-[11px] font-bold rounded border transition-colors ${isNoIncentive ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
@@ -637,7 +653,8 @@
                       placeholder="輸入數值" 
                       className="w-[72px] bg-slate-50 border border-slate-200 rounded p-1 text-[11px] text-right focus:border-blue-500 outline-none" 
                     />
-                    <button onClick={handleApplyOverallDiscount} className="px-3 py-1 text-[11px] font-bold rounded bg-emerald-700 text-white hover:bg-emerald-800 transition-colors shadow-sm">確定</button>
+                    <button onClick={handleApplyOverallDiscount} className="px-3 py-1 text-[11px] font-bold rounded bg-emerald-700 text-white hover:bg-emerald-800 transition-colors shadow-sm">更新折扣</button>
+                    <button onClick={handleResetOverallDiscount} className="px-3 py-1 text-[11px] font-bold rounded bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm">重置</button>
                   </div>
                 </div>
               </div>
@@ -713,7 +730,7 @@
                       <th className="px-4 py-3 font-semibold text-center w-24">DISCOUNT<br/>(可覆寫)</th>
                       <th className="px-4 py-3 font-semibold text-right">DISTY COST<br/>({currency})</th>
                       <th className="px-4 py-3 font-semibold text-center w-16">QTY</th>
-                      <th className="px-4 py-3 font-semibold text-center w-16">TERM (M)</th>
+                      <th className="px-4 py-3 font-semibold text-center w-16">TERM (MONTHS)</th>
                       <th className="px-4 py-3 font-semibold text-center w-24">MARGIN<br/>(可覆寫)</th>
                       <th className="px-4 py-3 font-semibold text-right">INCENTIVE<br/>({currency})</th>
                       <th className="px-4 py-3 font-semibold text-right bg-blue-50 text-blue-800">RESELLER EXTENDED PRICE<br/>({currency})</th>
@@ -740,7 +757,19 @@
                               <div className="text-[11px] text-slate-500 max-w-[180px] truncate" title={item.product.Description}>{item.product.Description}</div>
                               <div className="text-[9px] bg-slate-200 inline-block px-1 rounded mt-1 text-slate-600">{item.product.Product_type}</div>
                             </td>
-                            <td className="px-4 py-3 text-right text-slate-600 font-mono text-xs">{formatMoney(calc.listPrice)}</td>
+                            
+                            {/* UNIT LIST PRICE 變成可覆寫輸入框 */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-slate-500 font-bold text-xs">{currency === 'USD' ? '$' : 'HK$'}</span>
+                                <input type="number" step="0.01" min="0"
+                                  className="w-[72px] bg-white border border-slate-300 rounded p-1 text-[11px] text-right focus:border-blue-500 outline-none"
+                                  value={item.manualListPrice !== null ? item.manualListPrice : calc.listPrice}
+                                  onChange={(e) => updateRow(item.id, 'manualListPrice', e.target.value === '' ? null : parseFloat(e.target.value))}
+                                />
+                              </div>
+                            </td>
+
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <input type="number" step="0.1" min="0" max="100"
@@ -757,7 +786,9 @@
                                 value={item.qty} onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)} />
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <input type="number" min="0" max="60" className="w-[44px] bg-white border border-slate-300 rounded p-1 text-[11px] text-center focus:border-blue-500 outline-none"
+                              <input type="number" min="0" max="60" 
+                                disabled={Number(item.product.Term_months || 0) === 0}
+                                className={`w-[44px] border border-slate-300 rounded p-1 text-[11px] text-center focus:border-blue-500 outline-none ${Number(item.product.Term_months || 0) === 0 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white'}`}
                                 value={item.termMonths === '' ? '' : item.termMonths} 
                                 onChange={(e) => updateRow(item.id, 'termMonths', e.target.value)} 
                                 onBlur={(e) => handleTermBlur(item.id, item.product.SKU, e.target.value)}
