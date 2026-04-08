@@ -320,10 +320,30 @@
 
       const searchContainerRef = useRef(null);
 
-      // 當切換全域策略或幣別時，自動清空手動覆寫項目
+      // 當切換全域策略時，自動清空手動覆寫的折扣與毛利
       useEffect(() => {
         setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null, manualListPrice: null })));
-      }, [strategy, currency]);
+      }, [strategy]);
+
+      // 當切換幣別時，對手動修改過的單價進行雙向換算
+      const handleCurrencyChange = (e) => {
+        const newCurrency = e.target.value;
+        if (newCurrency === currency) return;
+
+        setCart(prev => prev.map(item => {
+          if (item.manualListPrice !== null) {
+            let convertedPrice = item.manualListPrice;
+            if (currency === 'USD' && newCurrency === 'HKD') {
+              convertedPrice = item.manualListPrice * 7.85;
+            } else if (currency === 'HKD' && newCurrency === 'USD') {
+              convertedPrice = item.manualListPrice / 7.85;
+            }
+            return { ...item, manualListPrice: convertedPrice };
+          }
+          return item;
+        }));
+        setCurrency(newCurrency);
+      };
 
       const productTypeOptions = useMemo(() => {
         const types = new Set(products.map(p => p.Product_type).filter(Boolean));
@@ -612,7 +632,7 @@
                 <div className="flex items-center gap-4 bg-slate-100 p-1.5 rounded-lg border border-slate-200">
                   <div className="flex items-center gap-2 px-2">
                     <span className="text-xs font-semibold text-slate-500 uppercase">幣別</span>
-                    <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="bg-transparent font-bold text-sm text-slate-800 outline-none cursor-pointer">
+                    <select value={currency} onChange={handleCurrencyChange} className="bg-transparent font-bold text-sm text-slate-800 outline-none cursor-pointer">
                       <option value="HKD">HKD</option><option value="USD">USD</option>
                     </select>
                   </div>
@@ -758,12 +778,13 @@
                               <div className="text-[9px] bg-slate-200 inline-block px-1 rounded mt-1 text-slate-600">{item.product.Product_type}</div>
                             </td>
                             
-                            {/* UNIT LIST PRICE 變成可覆寫輸入框 */}
+                            {/* UNIT LIST PRICE 變成可覆寫輸入框 (僅限 $NaN 或無效值時可修改) */}
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <span className="text-slate-500 font-bold text-xs">{currency === 'USD' ? '$' : 'HK$'}</span>
                                 <input type="number" step="0.01" min="0"
-                                  className="w-[72px] bg-white border border-slate-300 rounded p-1 text-[11px] text-right focus:border-blue-500 outline-none"
+                                  disabled={!isNaN(Number(item.product.Unit_list_price))}
+                                  className={`w-[72px] border border-slate-300 rounded p-1 text-[11px] text-right focus:border-blue-500 outline-none ${!isNaN(Number(item.product.Unit_list_price)) ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
                                   value={item.manualListPrice !== null ? item.manualListPrice : calc.listPrice}
                                   onChange={(e) => updateRow(item.id, 'manualListPrice', e.target.value === '' ? null : parseFloat(e.target.value))}
                                 />
