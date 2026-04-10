@@ -601,6 +601,7 @@
         const quotationData = {
           QuoteID: `QT-${timestamp}`,
           Date: new Date(timestamp).toISOString(),
+          CreatedAt: new Date(timestamp).toISOString(),
           Currency: currency, AppliedStrategy: strategy,
           IsNoIncentive: isNoIncentive, OverallDiscount: appliedOverallDiscount,
           SubTotal: subTotalAmount, TotalAmount: totalAmount,
@@ -627,8 +628,7 @@
 
         try {
           const { collection, addDoc } = fb;
-          const currentAppId = typeof __app_id !== 'undefined' ? __app_id : 'panw-quote-generator';
-          const quotationsRef = collection(db, 'artifacts', currentAppId, 'users', user.uid, 'quotations');
+          const quotationsRef = collection(db, 'quote_history');
           
           await addDoc(quotationsRef, quotationData);
           
