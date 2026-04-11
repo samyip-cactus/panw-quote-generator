@@ -22,13 +22,13 @@
                     "on-primary-fixed-variant": "#004881",
                     "on-primary": "#ffffff",
                     "surface-dim": "#d0dbed",
-                    "tertiary": "#e01f26", // Adjusted to match brand red
+                    "tertiary": "#e01f26", 
                     "on-surface": "#121c2a",
                     "on-tertiary-fixed-variant": "#93000e",
                     "on-tertiary": "#ffffff",
                     "surface-container-highest": "#d9e3f6",
                     "secondary-fixed": "#e4e2e2",
-                    "secondary": "#454545", // Adjusted to match brand gray
+                    "secondary": "#454545", 
                     "surface-bright": "#f8f9ff",
                     "secondary-container": "#e4e2e2",
                     "on-primary-fixed": "#001c38",
@@ -53,12 +53,12 @@
                     "on-error-container": "#93000a",
                     "inverse-surface": "#27313f",
                     "background": "#f8f9ff",
-                    "primary-container": "#005596", // Primary Color
+                    "primary-container": "#005596", 
                     "tertiary-fixed": "#ffdad6",
                     "surface-container-lowest": "#ffffff",
                     "on-surface-variant": "#414750",
                     "on-secondary": "#ffffff",
-                    "primary": "#005596", // Primary Color
+                    "primary": "#005596", 
                     "inverse-on-surface": "#eaf1ff",
                     "outline": "#727781",
                     "error-container": "#ffdad6",
@@ -97,14 +97,14 @@
     };
   </script>
 
-  <!-- 載入 React (使用穩定的 cdnjs) -->
+  <!-- 載入 React -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   
-  <!-- 載入 Babel Standalone 支援 JSX -->
+  <!-- 載入 Babel Standalone -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js" crossorigin="anonymous"></script>
 
-  <!-- 載入 ExcelJS 與 FileSaver 支援帶有樣式的 Excel 模板匯出 -->
+  <!-- 載入 ExcelJS 與 FileSaver -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" crossorigin="anonymous"></script>
 
@@ -119,12 +119,10 @@
       .no-print { display: none !important; }
       .print-container { max-width: 100%; box-shadow: none; padding: 0; margin: 0 auto; }
     }
-    /* 隱藏數字輸入框的上下箭頭 */
     input[type=number]::-webkit-inner-spin-button, 
     input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
     
-    /* 自訂捲軸樣式 */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #c1c7d2; border-radius: 10px; }
@@ -133,7 +131,6 @@
 </head>
 <body class="bg-surface text-on-surface selection:bg-primary-fixed font-body">
   
-  <!-- 初始載入動畫 -->
   <div id="loading" class="flex flex-col items-center justify-center min-h-screen text-slate-500">
     <svg class="animate-spin mb-3 h-8 w-8 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -144,7 +141,6 @@
 
   <div id="root"></div>
 
-  <!-- Firebase 原生模組載入器 -->
   <script type="module">
     Promise.all([
       import('https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js'),
@@ -235,7 +231,7 @@
 
       useEffect(() => {
         if (isMockMode || !auth) {
-          setUser({ uid: 'mock-user' });
+          setUser({ uid: 'mock-user', displayName: 'Mock User' });
           return;
         }
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -342,7 +338,7 @@
                 </div>
               </div>
               <h1 className="text-2xl font-bold text-center mb-2 font-headline text-on-surface">Architect's Ledger</h1>
-              <p className="text-center text-secondary mb-8 text-sm font-label">Enterprise Portal Login</p>
+              <p className="text-center text-secondary mb-8 text-sm font-label">Team Palo Alto Networks Login</p>
               
               <button 
                 onClick={handleGoogleLogin}
@@ -377,6 +373,7 @@
       const [endUserName, setEndUserName] = useState('');
       const [isUnofficial, setIsUnofficial] = useState(false);
       const [toastMessage, setToastMessage] = useState('');
+      const [validationError, setValidationError] = useState('');
       
       const [filterProductType, setFilterProductType] = useState(['Production']);
       const [filterProductClass, setFilterProductClass] = useState(['Product', 'Subscription', 'Support']);
@@ -391,6 +388,9 @@
       const [bulkMargin, setBulkMargin] = useState(10);
 
       const searchContainerRef = useRef(null);
+
+      const displayUserName = user?.displayName || user?.email?.split('@')[0] || 'User';
+      const userInitial = displayUserName.substring(0, 1).toUpperCase();
 
       useEffect(() => {
         setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null, manualListPrice: null })));
@@ -453,7 +453,8 @@
         return preFiltered.filter(p => {
           const docId = (p.id || p.SKU || '').toLowerCase();
           const desc = (p.Description || '').toLowerCase();
-          return terms.some(term => docId.includes(term) || desc.includes(term));
+          // 改為 AND 搜尋邏輯
+          return terms.every(term => docId.includes(term) || desc.includes(term));
         }).slice(0, 20);
       }, [searchQuery, products, filterProductType, filterProductClass, filterIsHA]);
 
@@ -551,6 +552,7 @@
 
       const handleToggleUnofficial = () => {
         if (!isUnofficial) {
+          // 由非正式切換至正式時
           setResellerName('');
           setEndUserName('');
         }
@@ -599,16 +601,7 @@
       };
 
       const groupedCart = useMemo(() => {
-        const CLASS_ORDER = ["Product", "Support", "Subscription", "HW Accessory", "Miscellaneous"];
-        
-        const groups = {
-          "Product": [],
-          "Support": [],
-          "Subscription": [],
-          "HW Accessory": [],
-          "Miscellaneous": [],
-          "Other": []
-        };
+        const groups = { "Product": [], "Support": [], "Subscription": [], "HW Accessory": [], "Miscellaneous": [], "Other": [] };
 
         cart.forEach(item => {
           const pClass = item.product.Product_class;
@@ -674,8 +667,6 @@
 
         if (isMockMode || !db || !user) {
           console.log("=== 準備寫入 (模擬模式) ===", JSON.stringify(quotationData, null, 2));
-          setToastMessage('報價單已成功生成！');
-          setTimeout(() => setToastMessage(''), 3000);
           return;
         }
 
@@ -690,6 +681,15 @@
       };
 
       const handleGenerateQuote = async () => {
+        // 驗證
+        if (!isUnofficial) {
+          if (!resellerName.trim() || !endUserName.trim()) {
+            setValidationError('Reseller Name 和 End User Name 在正式報價模式下不能為空。');
+            return;
+          }
+        }
+        setValidationError('');
+        
         await saveQuotation();
         setIsPreview(true);
       };
@@ -722,7 +722,7 @@
             { header: '', key: 'extPrice', width: 25 }
           ];
 
-          const titleRow = worksheet.addRow(['OFFICIAL QUOTATION']);
+          const titleRow = worksheet.addRow([isUnofficial ? 'UNOFFICIAL QUOTATION' : 'OFFICIAL QUOTATION']);
           titleRow.font = { size: 16, bold: true };
           worksheet.addRow(['Date:', new Date().toLocaleDateString()]);
           worksheet.addRow(['Reseller Name:', resellerName || '____________________']);
@@ -734,7 +734,7 @@
           const headerRow = worksheet.addRow(headerLabels);
           headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }; 
           headerRow.eachCell(cell => {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF005596' } }; // Brand Primary
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF005596' } }; 
             cell.alignment = { vertical: 'middle', horizontal: 'center' };
           });
 
@@ -772,10 +772,10 @@
             subRow.getCell(6).numFmt = '#,##0.00';
             const discRow = worksheet.addRow(['', '', '', '', `Discount (${appliedOverallDiscount.type === '%' ? appliedOverallDiscount.value + '%' : currency}):`, -overallDiscountAmount]);
             discRow.getCell(6).numFmt = '#,##0.00';
-            discRow.font = { color: { argb: 'FFE01F26' } }; // Brand Red
+            discRow.font = { color: { argb: 'FFE01F26' } }; 
           }
           
-          const totalRow = worksheet.addRow(['', '', '', '', 'Total:', totalAmount]);
+          const totalRow = worksheet.addRow(['', '', '', '', 'Total Amount:', totalAmount]);
           totalRow.font = { bold: true, size: 12 };
           totalRow.getCell(6).numFmt = '#,##0.00';
 
@@ -811,7 +811,7 @@
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-on-surface text-lg font-headline">Architect's Ledger</p>
-                  <p className="text-sm text-secondary font-label">Enterprise Portal</p>
+                  <p className="text-sm text-secondary font-label">Team Palo Alto Networks</p>
                   <p className="text-sm font-bold text-primary mt-2">Currency: {currency}</p>
                   
                   <div className="mt-4 no-print flex items-center justify-end gap-2">
@@ -889,7 +889,7 @@
                     </>
                   )}
                   <div className="flex justify-between items-center text-xl font-black text-primary font-headline">
-                    <span>Total Estimate:</span>
+                    <span>Total Amount:</span>
                     <span className="font-mono">{formatMoney(totalAmount, true)}</span>
                   </div>
                 </div>
@@ -915,11 +915,11 @@
             </div>
           )}
 
-          {/* Sidebar (Placeholder Navigation) */}
+          {/* Sidebar */}
           <aside className="w-64 fixed left-0 top-0 h-screen border-r border-outline-variant/20 bg-surface-container-lowest flex flex-col py-6 z-40">
             <div className="px-6 mb-10">
               <h1 className="text-xl font-black text-primary font-headline tracking-tight">Architect's Ledger</h1>
-              <p className="text-xs text-secondary font-label mt-1">Enterprise Portal</p>
+              <p className="text-xs text-secondary font-label mt-1">Team Palo Alto Networks</p>
             </div>
             <nav className="flex-1 flex flex-col px-3 space-y-1">
               <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
@@ -983,23 +983,13 @@
               </div>
               
               <nav className="flex items-center gap-5">
-                <div className="flex items-center gap-2">
-                  <button className="p-2 text-secondary hover:bg-surface-container rounded-full relative transition-colors">
-                    <span className="material-symbols-outlined">notifications</span>
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-brand-red rounded-full"></span>
-                  </button>
-                  <button className="p-2 text-secondary hover:bg-surface-container rounded-full transition-colors">
-                    <span className="material-symbols-outlined">history</span>
-                  </button>
-                </div>
-                <div className="w-px h-6 bg-outline-variant/30 mx-1"></div>
                 <div className="flex items-center gap-3 group cursor-pointer" onClick={onLogout}>
                   <div className="text-right">
-                    <p className="text-xs font-bold text-on-surface group-hover:text-primary transition-colors">{userRole === 'ADMIN' ? 'Admin Portal' : 'Sales Architect'}</p>
+                    <p className="text-xs font-bold text-on-surface group-hover:text-primary transition-colors">{displayUserName}</p>
                     <p className="text-[10px] text-secondary flex items-center justify-end gap-1"><span className="material-symbols-outlined text-[12px]">logout</span> Logout</p>
                   </div>
                   <div className="w-9 h-9 rounded-full bg-primary-fixed text-primary flex items-center justify-center font-bold text-sm">
-                    {userRole === 'ADMIN' ? 'AD' : 'SA'}
+                    {userInitial}
                   </div>
                 </div>
               </nav>
@@ -1012,23 +1002,28 @@
               <div className="flex justify-between items-end mb-8">
                 <div>
                   <h2 className="text-3xl font-black text-primary font-headline tracking-tight">Interactive Quote Generator</h2>
-                  <p className="text-secondary mt-1 font-medium flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px]">folder_open</span>
-                    {endUserName ? `Project for ${endUserName}` : 'Drafting New Project'}
-                  </p>
+                  <div className="flex items-center gap-3 mt-3">
+                    <button className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-high hover:bg-surface-variant text-primary text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors">
+                      <span className="material-symbols-outlined text-[16px]">description</span> Use Quote Template
+                    </button>
+                    <button className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-high hover:bg-surface-variant text-primary text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors">
+                      <span className="material-symbols-outlined text-[16px]">history</span> Open Historic Quote
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-col items-end gap-2">
                   <button onClick={handleGenerateQuote} disabled={cart.length === 0} className="px-6 py-2.5 bg-gradient-to-br from-primary to-primary-container text-on-primary font-bold rounded-xl shadow-lg hover:shadow-primary/20 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
                     <span className="material-symbols-outlined text-[18px]">receipt_long</span> Generate Quote
                   </button>
+                  {validationError && <p className="text-brand-red text-xs font-bold">{validationError}</p>}
                 </div>
               </div>
 
-              {/* Bento Grid */}
-              <div className="grid grid-cols-12 gap-8 items-start">
+              {/* Bento Grid: 8 Columns (Left 5, Right 3) */}
+              <div className="grid grid-cols-8 gap-8 items-start">
                 
-                {/* Left Canvas: Search & Table (col-span-8 or 9) */}
-                <div className="col-span-12 xl:col-span-8 space-y-6">
+                {/* Left Canvas: Search & Table (col-span-5) */}
+                <div className="col-span-8 xl:col-span-5 space-y-6">
                   
                   {/* Search & Filters Bento Box */}
                   <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm ring-1 ring-outline-variant/20 relative z-20" ref={searchContainerRef}>
@@ -1044,7 +1039,7 @@
                           onChange={(e) => { setSearchQuery(e.target.value); setIsSearching(true); }} 
                           onFocus={() => setIsSearching(true)} 
                           disabled={loading} 
-                          placeholder={loading ? "Loading product catalog..." : "Search by SKU, Product Name or type space for OR query (e.g. PA-440 sub)"} 
+                          placeholder={loading ? "Loading product catalog..." : "Search by SKU, Product Name (space for AND query)"} 
                           className="w-full pl-12 pr-4 py-3 bg-surface border border-outline-variant/30 rounded-xl text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all disabled:opacity-50 font-medium" 
                         />
                       </div>
@@ -1100,15 +1095,15 @@
                           searchResults.map(prod => (
                             <div key={prod.SKU} onClick={() => addToCart(prod)} className="p-4 hover:bg-surface-container-low cursor-pointer flex justify-between items-center group transition-colors">
                               <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center">
+                                <div className="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center shrink-0">
                                   <span className="material-symbols-outlined text-primary/70">inventory_2</span>
                                 </div>
-                                <div>
-                                  <div className="font-bold text-sm text-on-surface mb-0.5">{prod.SKU}</div>
-                                  <div className="text-xs text-secondary truncate max-w-md">{prod.Description}</div>
+                                <div className="min-w-0">
+                                  <div className="font-bold text-sm text-on-surface mb-0.5 truncate">{prod.SKU}</div>
+                                  <div className="text-xs text-secondary truncate">{prod.Description}</div>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-4 shrink-0">
                                 <span className="text-[10px] font-bold uppercase tracking-wider bg-surface-variant text-on-surface-variant px-2.5 py-1 rounded-full">{prod.Product_type}</span>
                                 <button className="w-8 h-8 rounded-full bg-primary-fixed text-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100">
                                   <span className="material-symbols-outlined text-[18px]">add</span>
@@ -1151,7 +1146,6 @@
                             </tr>
                           ) : (
                             groupedCart.map((row, idx) => {
-                              // 分類標題列
                               if (row.type === 'header') {
                                 return (
                                   <tr key={row.id} className="bg-surface-variant/40">
@@ -1162,7 +1156,6 @@
                                 );
                               }
 
-                              // 產品項目列
                               const item = row;
                               const calc = getCalculatedRow(item);
                               const isEditableListPrice = isNaN(Number(item.product.Unit_list_price));
@@ -1171,12 +1164,11 @@
                               return (
                                 <tr key={item.id} className="hover:bg-surface-container-highest/20 transition-colors group">
                                   <td className="px-4 py-4">
-                                    <div className="font-bold text-on-surface text-[13px] leading-tight mb-0.5">{item.product.SKU}</div>
+                                    <div className="font-bold text-on-surface text-[13px] leading-tight mb-0.5 truncate max-w-[200px]">{item.product.SKU}</div>
                                     <div className="text-[11px] text-secondary max-w-[200px] truncate mb-1.5" title={item.product.Description}>{item.product.Description}</div>
                                     <div className="text-[9px] font-bold uppercase tracking-wider bg-surface-container text-secondary inline-block px-1.5 py-0.5 rounded">{item.product.Product_type}</div>
                                   </td>
                                   
-                                  {/* Unit Price */}
                                   <td className="px-3 py-4 text-right">
                                     <div className="flex items-center justify-end gap-1">
                                       <span className="text-secondary font-bold text-xs">{currency === 'USD' ? '$' : 'HK$'}</span>
@@ -1188,7 +1180,6 @@
                                     </div>
                                   </td>
 
-                                  {/* Discount */}
                                   <td className="px-3 py-4 text-center">
                                     <div className="flex items-center justify-center gap-1">
                                       <input type="number" step="0.1" min="0" max="100"
@@ -1199,17 +1190,14 @@
                                     </div>
                                   </td>
 
-                                  {/* Disty Cost */}
                                   <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{formatMoney(calc.distyCost)}</td>
                                   
-                                  {/* QTY */}
                                   <td className="px-3 py-4 text-center">
                                     <input type="number" min="1" 
                                       className="w-[48px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
                                       value={item.qty} onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)} />
                                   </td>
                                   
-                                  {/* Term */}
                                   <td className="px-3 py-4 text-center">
                                     <input type="number" min="0" max="60" disabled={isTermZero}
                                       className={`w-[44px] border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none ${isTermZero ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest'}`}
@@ -1219,7 +1207,6 @@
                                     />
                                   </td>
 
-                                  {/* Margin */}
                                   <td className="px-3 py-4 text-center">
                                     <div className="flex items-center justify-center gap-1">
                                       <input type="number" step="0.1" min="0" max="100"
@@ -1230,13 +1217,10 @@
                                     </div>
                                   </td>
 
-                                  {/* Incentive */}
                                   <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
                                   
-                                  {/* Ext Price */}
                                   <td className="px-4 py-4 text-right font-black text-primary bg-primary-fixed/10 font-mono text-[13px]">{formatMoney(calc.extendedPrice, true)}</td>
                                   
-                                  {/* Actions */}
                                   <td className="px-2 py-4 text-center align-middle">
                                     <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                       <button onClick={() => duplicateRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-primary hover:bg-surface-container-high transition-colors flex items-center justify-center" title="Duplicate">
@@ -1257,17 +1241,16 @@
                   </div>
                 </div>
 
-                {/* Right Canvas: Summary & Settings (col-span-4) */}
-                <div className="col-span-12 xl:col-span-4 space-y-6">
+                {/* Right Canvas: Summary & Settings (col-span-3) */}
+                <div className="col-span-8 xl:col-span-3 space-y-6">
                   
                   {/* Blue Summary Card */}
                   <div className="bg-primary rounded-3xl p-8 text-on-primary shadow-xl relative overflow-hidden">
                     <div className="absolute -right-16 -top-16 w-64 h-64 bg-white rounded-full blur-3xl opacity-10 pointer-events-none"></div>
                     <div className="relative z-10">
                       <p className="text-primary-fixed text-[10px] font-black uppercase tracking-widest font-label mb-3">Quote Summary</p>
-                      <h2 className="text-4xl font-black font-headline mb-8 tracking-tighter">{formatMoney(totalAmount, true)}</h2>
                       
-                      <div className="space-y-4 text-sm font-label">
+                      <div className="space-y-3 text-sm font-label">
                         <div className="flex justify-between border-b border-white/20 pb-3">
                           <span className="text-inverse-primary font-medium">Subtotal</span>
                           <span className="font-bold font-mono">{formatMoney(subTotalAmount, true)}</span>
@@ -1279,9 +1262,30 @@
                           </div>
                         )}
                         <div className="flex justify-between pt-2">
-                          <span className="text-white font-black">Total Estimate</span>
-                          <span className="text-white font-black text-lg font-mono tracking-tight">{formatMoney(totalAmount, true)}</span>
+                          <span className="text-white font-black text-lg">Total Amount</span>
+                          <span className="text-white font-black text-2xl font-mono tracking-tight">{formatMoney(totalAmount, true)}</span>
                         </div>
+                        
+                        <div className="border-t border-white/20 my-4"></div>
+                        
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-inverse-primary font-medium">Booking to Vendor</span>
+                          <span className="font-mono">{formatMoney(totalBookingToVendor, true)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-inverse-primary font-medium">Other Cost</span>
+                          <span className="font-mono">{formatMoney(totalOtherCost, true)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm pt-2">
+                          <span className="text-white font-bold">Gross Margin</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-white">{formatMoney(totalGrossMarginAmount, true)}</span>
+                            <span className="text-[10px] font-black text-brand-red bg-error-container px-1.5 py-0.5 rounded">
+                              {totalGrossMarginPercent.toFixed(1)}%
+                            </span>
+                          </div>
+                        </div>
+
                       </div>
                     </div>
                   </div>
@@ -1320,27 +1324,6 @@
                     </h3>
                     
                     <div className="space-y-5">
-                      {/* Booking/Margin Summary (Mini View) */}
-                      <div className="bg-surface-container-highest p-3.5 rounded-xl space-y-2 border border-outline-variant/30">
-                         <div className="flex justify-between items-center">
-                          <span className="text-[10px] text-secondary font-bold uppercase tracking-wide">Booking to Vendor</span>
-                          <span className="text-xs font-mono font-bold text-on-surface">{formatMoney(totalBookingToVendor, true)}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-[10px] text-secondary font-bold uppercase tracking-wide">Other Cost</span>
-                          <span className="text-xs font-mono font-bold text-on-surface">{formatMoney(totalOtherCost, true)}</span>
-                        </div>
-                        <div className="flex justify-between items-center border-t border-outline-variant/40 pt-2 mt-1">
-                          <span className="text-[10px] text-primary font-black uppercase tracking-wide">Gross Margin</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-mono font-black text-primary">{formatMoney(totalGrossMarginAmount, true)}</span>
-                            <span className="text-[9px] font-black text-brand-red bg-error-container px-1.5 py-0.5 rounded">
-                              {totalGrossMarginPercent.toFixed(1)}%
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
                       {/* Controls */}
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
@@ -1359,17 +1342,17 @@
                           </div>
                         </div>
                         
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 col-span-2">
                           <label className="text-[10px] font-bold text-secondary uppercase">Bulk Margin (%)</label>
                           <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 focus-within:ring-1 focus-within:border-primary">
                             <input type="number" min="0" step="1" value={bulkMargin} onChange={(e) => setBulkMargin(e.target.value)} 
                               className="w-full bg-transparent border-0 text-xs text-center font-bold font-mono focus:ring-0 p-0" />
-                            <button onClick={handleBulkUpdateMargin} className="px-2 bg-surface-container-high rounded text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
+                            <button onClick={handleBulkUpdateMargin} className="px-3 bg-surface-container-high rounded text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
                           </div>
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-outline-variant/20">
+                      <div className="pt-4 border-t border-outline-variant/20">
                         <label className="block text-[10px] font-bold text-secondary uppercase mb-2">Overall Discount</label>
                         <div className="flex items-center gap-2">
                           <div className="flex bg-surface-container-high rounded-lg p-0.5 shrink-0">
