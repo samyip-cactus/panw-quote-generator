@@ -253,7 +253,7 @@ Fax : (852) 2561 6537`;
         measurementId: "G-0NR1BTLYCJ"
       };
 
-      const { initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, getFirestore, collection, addDoc } = fb || {};
+      const { initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, getFirestore, collection, addDoc, doc, setDoc } = fb || {};
 
       const { auth, db, isMockMode } = useMemo(() => {
         if (!fb) return { isMockMode: true, auth: null, db: null };
@@ -405,6 +405,11 @@ Fax : (852) 2561 6537`;
         return d.toISOString().split('T')[0];
       };
 
+      // == Session 專屬 ID 管理 ==
+      // 保證同一個作業 Session 內，重複儲存不會產生多筆記錄，而是覆寫同一筆記錄
+      const [quoteId, setQuoteId] = useState(() => `QT-${Date.now()}`);
+      const [createdAt, setCreatedAt] = useState(() => new Date().toISOString());
+
       const [cart, setCart] = useState([]);
       const [searchQuery, setSearchQuery] = useState('');
       const [isSearching, setIsSearching] = useState(false);
@@ -494,7 +499,6 @@ Fax : (852) 2561 6537`;
         return preFiltered.filter(p => {
           const docId = (p.id || p.SKU || '').toLowerCase();
           const desc = (p.Description || '').toLowerCase();
-          // AND 搜尋邏輯
           return terms.every(term => docId.includes(term) || desc.includes(term));
         }).slice(0, 20);
       }, [searchQuery, products, filterProductType, filterProductClass, filterIsHA]);
@@ -683,12 +687,12 @@ Fax : (852) 2561 6537`;
 
       const saveQuotation = async (finalValidDate) => {
         if (cart.length === 0) return;
-        const timestamp = Date.now();
         const quotationData = {
-          QuoteID: `QT-${timestamp}`,
-          Date: new Date(timestamp).toISOString(),
+          QuoteID: quoteId,
+          Date: new Date().toISOString(),
           QuoteValidDate: finalValidDate || validDate,
-          CreatedAt: new Date(timestamp).toISOString(),
+          CreatedAt: createdAt,
+          UpdatedAt: new Date().toISOString(), // 紀錄最後更新時間
           Currency: currency, AppliedStrategy: strategy,
           IsNoIncentive: isNoIncentive, OverallDiscount: appliedOverallDiscount,
           SubTotal: subTotalAmount, TotalAmount: totalAmount,
@@ -713,9 +717,11 @@ Fax : (852) 2561 6537`;
         }
 
         try {
-          const { collection, addDoc } = fb;
+          const { collection, doc, setDoc } = fb;
           const quotationsRef = collection(db, 'quote_history');
-          await addDoc(quotationsRef, quotationData);
+          // 使用 setDoc 覆寫或建立同一個 QuoteID 的文件，避免重複保存
+          const quoteDocRef = doc(quotationsRef, quoteId);
+          await setDoc(quoteDocRef, quotationData);
         } catch (error) {
           console.error("儲存失敗:", error);
           alert("儲存報價單失敗：" + error.message);
@@ -734,10 +740,14 @@ Fax : (852) 2561 6537`;
             setValidationError('Reseller Name and End User Name are required for official quotes.');
             return;
           }
+          setValidationError('');
+          // 正式報價才執行儲存至 Firebase 的邏輯
+          await saveQuotation(finalValidDate);
+        } else {
+          setValidationError('');
+          // 非正式報價不儲存，直接跳過 saveQuotation
         }
-        setValidationError('');
         
-        await saveQuotation(finalValidDate);
         setIsPreview(true);
       };
 
@@ -1018,7 +1028,15 @@ Fax : (852) 2561 6537`;
             <div className="mt-auto px-5 space-y-4">
               <button onClick={() => {
                 if(confirm('確定要清空現有報價單並建立新專案嗎？')) {
-                  setCart([]); setResellerName(''); setEndUserName(''); setIsUnofficial(false); setValidationError('');
+                  setCart([]); 
+                  setResellerName(''); 
+                  setEndUserName(''); 
+                  setIsUnofficial(false); 
+                  setValidationError('');
+                  // 重新生成新的 QuoteID，開啟新的 Session
+                  const now = Date.now();
+                  setQuoteId(`QT-${now}`);
+                  setCreatedAt(new Date(now).toISOString());
                 }
               }} className="w-full py-2.5 bg-gradient-to-br from-primary to-primary-container text-on-primary rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2">
                 <span className="material-symbols-outlined text-[18px]">add</span> New Quote
