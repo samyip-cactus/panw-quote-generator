@@ -169,6 +169,43 @@
       'Renew, Non-incumbent': 'Discount_Renew_base'
     };
 
+    const TERMS_AND_CONDITIONS = `Terms and Conditions:
+1. Software products are deemed delivered by Ingram Micro and accepted by you upon the earlier of:
+(a) Delivery of the physical media to you or your end user,
+(b) Electronic delivery of the software to you or your end user,
+(c) The software or access to the software is made available to you or your end user, or
+(d) The corresponding licence key is delivered or made available to you or your end user.
+
+Services are deemed delivered by Ingram Micro and accepted by you when Ingram Micro or its contractor has completed the services it has undertaken to perform.
+Unless otherwise agreed in writing by Ingram Micro, Ingram Micro shall be entitled to invoice you the price of software products and/or services ordered at any time upon delivery. You shall be obligated to make timely payment of invoiced amounts by the due date stated in the invoice, failing which late payment interests will apply.
+
+2. This Quotation is made with reference to Ingram’s Terms of Sale and Additional Subscription and Multi-Year Terms and Conditions that are published on https://hk.ingrammicro.com/cms/media/Documents/IMHK-Customer-Terms-of-Sale-(verMar2024-with-the-additional-MYD-Tnc).pdf. All prices are subject to change without notice and will be established at time of order acceptance by Ingram Micro. Order acceptance and sales by Ingram Micro occurs at time of shipment. Prices for backordered product are not guaranteed.
+3. You agree that your agreement to proceed with this Quotation will be for the full term stated in the Quotation. No termination, cancellation, or amendment to the subscription/license/service term is permitted unless Ingram agrees in writing.
+4. You agree to pay Ingram in full for the subscription/license/service stated in this Quotation. You are liable to pay Ingram even if your customer cancels the order or if you fail to collect payment from your customer.
+5. Once you have agreed to this Quotation, Ingram may invoice you for the full subscription/license/service that is within the agreed scope even if you have not issued Ingram with a subsequent purchase order after the initial order.
+6. If we agree to allow you to cancel, terminate or amend the subscription/license/service, we may do so with the right to require you to pay the full amount for the entire term and we may also impose cancellation terms on you, such as cancellation fee.
+7. The subscription/license/service you purchase under this Quotation may be subject to additional terms and conditions which we will notify you in writing by email or otherwise.
+8. By agreeing or submitting an order to Ingram or by accepting or using the subscription/license/service, you are deemed to have unconditionally agreed to and accepted all of the terms and conditions set out herein, including any additional terms and conditions referenced above. These terms and conditions shall be binding on you in full without the need for further signature or acknowledgment, and your continued usage of the subscription/license/service shall constitute your ongoing acceptance.
+
+Additional Quotation Terms for Cisco Products
+Pricing for Cisco Products/Cisco offers may be revised with 14 days’ prior notice to you and such changes will automatically apply.
+We also reserve the right to:
+(a) cancel your Compute order with us up to 45 days prior to shipment should Cisco cancel such order with us; and/or
+(b) Adjust pricing on the Compute orders in the event Cisco adjusts its pricing with us as a result of increases in costs, tariffs, exchange rate fluctuations, or other external factors beyond our control that may occur between the order date and the shipment date.
+By placing a purchase order with us or otherwise proceeding with the transaction, you are deemed to have understood and agreed to the above terms
+
+Additional Quotation Terms to address Supply Constraints 
+Pricing and availability for the quoted products/offers may be adjusted prior to shipment where imposed by the product vendor due to changes in component availability and costs, manufacturing costs, tariffs, and related factors.
+We also reserve the right to:
+(a) cancel your order with us prior to shipment should the product vendor cancel such order with us; and/or
+(b) Adjust pricing on the orders in the event vendor adjusts its pricing with us as a result of increases in costs, tariffs, exchange rate fluctuations, or other external factors beyond our control that may occur between the order date and the shipment date.
+By placing a purchase order with us or otherwise proceeding with the transaction, you are deemed to have understood and agreed to the above terms.
+
+INGRAM MICRO (CHINA) LTD.
+38/F Enterprise Square Three, 39 Wang Chiu Road, Kowloon Bay, Kowloon, Hong Kong
+Tel : (852) 2564 9200
+Fax : (852) 2561 6537`;
+
     const MOCK_PRODUCTS = [
       {
         Product_class: "Product", Product_group: "Platforms", Model: "PA-3220", SKU: "PAN-PA-3220",
@@ -362,12 +399,19 @@
       const [strategy, setStrategy] = useState('Deal Reg, Registered Partner');
       const exchangeRate = currency === 'HKD' ? 7.85 : 1;
       
+      const getDefaultValidDate = () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        return d.toISOString().split('T')[0];
+      };
+
       const [cart, setCart] = useState([]);
       const [searchQuery, setSearchQuery] = useState('');
       const [isSearching, setIsSearching] = useState(false);
       const [isPreview, setIsPreview] = useState(false);
       const [resellerName, setResellerName] = useState('');
       const [endUserName, setEndUserName] = useState('');
+      const [validDate, setValidDate] = useState(getDefaultValidDate());
       const [isUnofficial, setIsUnofficial] = useState(false);
       const [toastMessage, setToastMessage] = useState('');
       const [validationError, setValidationError] = useState('');
@@ -637,18 +681,20 @@
       const totalGrossMarginAmount = totalAmount - totalBookingToVendor - totalOtherCost;
       const totalGrossMarginPercent = totalAmount > 0 ? (totalGrossMarginAmount / totalAmount) * 100 : 0;
 
-      const saveQuotation = async () => {
+      const saveQuotation = async (finalValidDate) => {
         if (cart.length === 0) return;
         const timestamp = Date.now();
         const quotationData = {
           QuoteID: `QT-${timestamp}`,
           Date: new Date(timestamp).toISOString(),
+          QuoteValidDate: finalValidDate || validDate,
           CreatedAt: new Date(timestamp).toISOString(),
           Currency: currency, AppliedStrategy: strategy,
           IsNoIncentive: isNoIncentive, OverallDiscount: appliedOverallDiscount,
           SubTotal: subTotalAmount, TotalAmount: totalAmount,
           ResellerName: resellerName || 'Unknown',
           EndUserName: endUserName || 'Unknown',
+          PreparedBy: displayUserName,
           IsUnofficial: isUnofficial,
           Items: groupedCart.filter(row => row.type === 'item').map(item => {
             const calc = getCalculatedRow(item);
@@ -677,6 +723,12 @@
       };
 
       const handleGenerateQuote = async () => {
+        let finalValidDate = validDate;
+        if (!finalValidDate) {
+          finalValidDate = getDefaultValidDate();
+          setValidDate(finalValidDate);
+        }
+
         if (!isUnofficial) {
           if (!resellerName.trim() || !endUserName.trim()) {
             setValidationError('Reseller Name and End User Name are required for official quotes.');
@@ -685,7 +737,7 @@
         }
         setValidationError('');
         
-        await saveQuotation();
+        await saveQuotation(finalValidDate);
         setIsPreview(true);
       };
 
@@ -720,8 +772,10 @@
           const titleRow = worksheet.addRow([isUnofficial ? 'UNOFFICIAL QUOTATION' : 'OFFICIAL QUOTATION']);
           titleRow.font = { size: 16, bold: true };
           worksheet.addRow(['Date:', new Date().toLocaleDateString()]);
+          worksheet.addRow(['Quote Valid Date:', validDate]);
           worksheet.addRow(['Reseller Name:', resellerName || '____________________']);
           worksheet.addRow(['End User Name:', endUserName || '____________________']);
+          worksheet.addRow(['Prepared by:', displayUserName]);
           worksheet.addRow(['Currency:', currency]);
           worksheet.addRow([]); 
 
@@ -745,11 +799,13 @@
             } else {
               const calc = getCalculatedRow(row);
               const unitPrice = row.qty > 0 ? calc.extendedPrice / row.qty : 0;
+              const termVal = row.termMonths == 0 ? '-' : row.termMonths;
+
               const dataRow = worksheet.addRow([
                 row.product.SKU,
                 row.product.Description,
                 row.qty,
-                row.termMonths,
+                termVal,
                 unitPrice,
                 calc.extendedPrice
               ]);
@@ -773,6 +829,17 @@
           const totalRow = worksheet.addRow(['', '', '', '', 'Total Amount:', totalAmount]);
           totalRow.font = { bold: true, size: 12 };
           totalRow.getCell(6).numFmt = '#,##0.00';
+
+          // Insert Terms and Conditions
+          worksheet.addRow([]);
+          worksheet.addRow([]);
+          const tcLines = TERMS_AND_CONDITIONS.split('\n');
+          tcLines.forEach(line => {
+             const r = worksheet.addRow([line]);
+             worksheet.mergeCells(`A${r.number}:F${r.number}`);
+             r.getCell(1).font = { size: 9, color: { argb: 'FF666666' } };
+             r.getCell(1).alignment = { wrapText: true, vertical: 'top' };
+          });
 
           const buffer = await workbook.xlsx.writeBuffer();
           const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -803,9 +870,11 @@
                     {isUnofficial ? 'UNOFFICIAL QUOTATION' : 'OFFICIAL QUOTATION'}
                   </h1>
                   <div className="space-y-1">
-                    <p className="text-sm text-secondary font-label"><span className="font-semibold w-24 inline-block">Date:</span> {new Date().toLocaleDateString()}</p>
-                    <p className="text-sm text-secondary font-label"><span className="font-semibold w-24 inline-block">Reseller:</span> {resellerName || '____________________'}</p>
-                    <p className="text-sm text-secondary font-label"><span className="font-semibold w-24 inline-block">End User:</span> {endUserName || '____________________'}</p>
+                    <p className="text-sm text-secondary font-label"><span className="font-semibold w-32 inline-block">Date:</span> {new Date().toLocaleDateString()}</p>
+                    <p className="text-sm text-secondary font-label"><span className="font-semibold w-32 inline-block">Quote Valid Date:</span> {validDate}</p>
+                    <p className="text-sm text-secondary font-label"><span className="font-semibold w-32 inline-block">Reseller:</span> {resellerName || '____________________'}</p>
+                    <p className="text-sm text-secondary font-label"><span className="font-semibold w-32 inline-block">End User:</span> {endUserName || '____________________'}</p>
+                    <p className="text-sm text-secondary font-label"><span className="font-semibold w-32 inline-block">Prepared by:</span> {displayUserName}</p>
                   </div>
                 </div>
                 <div className="text-right flex flex-col items-end">
@@ -863,7 +932,7 @@
                           <td className="py-3 px-4 font-semibold text-on-surface">{item.product.SKU}</td>
                           <td className="py-3 px-4 text-secondary pr-4 leading-relaxed">{item.product.Description}</td>
                           <td className="py-3 px-4 text-center font-medium">{item.qty}</td>
-                          <td className="py-3 px-4 text-center text-secondary">{item.termMonths}</td>
+                          <td className="py-3 px-4 text-center text-secondary">{item.termMonths == 0 ? '-' : item.termMonths}</td>
                           <td className="py-3 px-4 text-right font-mono text-secondary">{formatMoney(unitPrice, true)}</td>
                           <td className="py-3 px-4 text-right font-bold text-on-surface font-mono">{formatMoney(calc.extendedPrice, true)}</td>
                         </tr>
@@ -893,8 +962,12 @@
                   </div>
                 </div>
               </div>
-              <div className="mt-16 text-xs text-secondary text-center border-t border-outline-variant/20 pt-6">
-                * This quotation is generated automatically and subject to final review. Prices are valid for 30 days.
+
+              {/* Terms and Conditions Area */}
+              <div className="mt-12 pt-6 border-t border-outline-variant/20">
+                <div className="text-[9px] text-secondary leading-relaxed whitespace-pre-wrap font-label">
+                  {TERMS_AND_CONDITIONS}
+                </div>
               </div>
             </div>
           </div>
@@ -1306,6 +1379,12 @@
                     </div>
                     
                     <div className="space-y-4">
+                      <div>
+                        <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Quote Valid Date</label>
+                        <input type="date" value={validDate} onChange={(e) => setValidDate(e.target.value)} disabled={isUnofficial}
+                          className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
+                        />
+                      </div>
                       <div>
                         <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Reseller Name</label>
                         <input type="text" placeholder="e.g. Ingram Micro" value={resellerName} onChange={(e) => setResellerName(e.target.value)} disabled={isUnofficial}
