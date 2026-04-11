@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Architect's Ledger | Quote Generator</title>
   
-  <!-- 載入 Tailwind CSS 與套件 -->
+  <!-- 載入 Tailwind CSS 與套件 (無 crossorigin 避免被阻擋) -->
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   
   <!-- 載入 Google Fonts 與 Material Symbols -->
@@ -109,7 +109,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" crossorigin="anonymous"></script>
 
   <style>
-    body { font-family: 'Inter', sans-serif; }
+    body { font-family: 'Inter', sans-serif; background-color: #f8f9ff; }
     .font-headline { font-family: 'Manrope', sans-serif; }
     .material-symbols-outlined {
         font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -231,7 +231,7 @@
 
       useEffect(() => {
         if (isMockMode || !auth) {
-          setUser({ uid: 'mock-user', displayName: 'Mock User' });
+          setUser({ uid: 'mock-user', displayName: 'Mock User', email: 'mock@example.com' });
           return;
         }
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -326,19 +326,19 @@
       if (!appUnlocked) {
         return (
           <div className="min-h-screen bg-surface flex items-center justify-center p-4">
-            <div className="bg-surface-container-lowest p-8 rounded-2xl shadow-lg max-w-md w-full border border-outline-variant/20 relative overflow-hidden">
+            <div className="bg-surface-container-lowest p-10 rounded-2xl shadow-lg max-w-md w-full border border-outline-variant/20 relative overflow-hidden">
               {isMockMode && (
-                <div className="absolute top-0 left-0 right-0 bg-error-container text-on-error-container text-xs text-center py-1 font-bold">
+                <div className="absolute top-0 left-0 right-0 bg-error-container text-on-error-container text-xs text-center py-1.5 font-bold">
                   目前為離線/本機模擬模式 (Mock Mode)
                 </div>
               )}
               <div className="flex justify-center mb-6 mt-4">
-                <div className="h-16 w-16 bg-primary-container text-on-primary rounded-full flex items-center justify-center">
+                <div className="h-16 w-16 bg-primary-container text-on-primary rounded-full flex items-center justify-center shadow-md">
                   <span className="material-symbols-outlined text-3xl">request_quote</span>
                 </div>
               </div>
-              <h1 className="text-2xl font-bold text-center mb-2 font-headline text-on-surface">Architect's Ledger</h1>
-              <p className="text-center text-secondary mb-8 text-sm font-label">Team Palo Alto Networks Login</p>
+              <h1 className="text-2xl font-black text-center mb-2 font-headline text-primary tracking-tight">Architect's Ledger</h1>
+              <p className="text-center text-secondary mb-10 text-sm font-label tracking-wide">Team Palo Alto Networks Login</p>
               
               <button 
                 onClick={handleGoogleLogin}
@@ -680,7 +680,6 @@
       };
 
       const handleGenerateQuote = async () => {
-        // 驗證
         if (!isUnofficial) {
           if (!resellerName.trim() || !endUserName.trim()) {
             setValidationError('Reseller Name 和 End User Name 在正式報價模式下不能為空。');
@@ -788,6 +787,10 @@
           console.error("Excel Export Error:", error);
           alert("匯出 Excel 時發生錯誤: " + (error.message || error));
         }
+      };
+
+      const handlePlaceholderAction = (actionName) => {
+        alert(`功能尚未實作 (Placeholder): ${actionName}`);
       };
 
       // ----------------------------------------------------
@@ -915,13 +918,13 @@
           )}
 
           {/* Sidebar */}
-          <aside className="w-56 fixed left-0 top-0 h-screen border-r border-outline-variant/20 bg-surface-container-lowest flex flex-col py-6 z-40">
-            <div className="px-5 mb-10">
-              <h1 className="text-xl font-black text-primary font-headline tracking-tight">Architect's Ledger</h1>
+          <aside className="w-[280px] fixed left-0 top-0 h-screen border-r border-outline-variant/20 bg-surface-container-lowest flex flex-col py-6 z-40">
+            <div className="px-6 mb-10">
+              <h1 className="text-2xl font-black text-primary font-headline tracking-tight">Architect's Ledger</h1>
               <p className="text-xs text-secondary font-label mt-1">Team Palo Alto Networks</p>
             </div>
-            <nav className="flex-1 flex flex-col px-3 space-y-1">
-              <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
+            <nav className="flex-1 flex flex-col px-4 space-y-1">
+              <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Dashboard');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
                 <span className="material-symbols-outlined">dashboard</span>
                 <span className="text-sm font-semibold">Dashboard</span>
               </a>
@@ -929,29 +932,33 @@
                 <span className="material-symbols-outlined">request_quote</span>
                 <span className="text-sm">Quotes</span>
               </a>
-              <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
+              <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Pipeline');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
                 <span className="material-symbols-outlined">account_tree</span>
                 <span className="text-sm font-semibold">Pipeline</span>
               </a>
-              <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
+              <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Orders');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
                 <span className="material-symbols-outlined">package_2</span>
                 <span className="text-sm font-semibold">Orders</span>
               </a>
-              <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
+              <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Analytics');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
                 <span className="material-symbols-outlined">leaderboard</span>
                 <span className="text-sm font-semibold">Analytics</span>
               </a>
             </nav>
-            <div className="mt-auto px-5 space-y-4">
-              <button className="w-full py-2.5 bg-gradient-to-br from-primary to-primary-container text-on-primary rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">add</span> New Quote
+            <div className="mt-auto px-6 space-y-4">
+              <button onClick={() => {
+                if(confirm('確定要清空現有報價單並建立新專案嗎？')) {
+                  setCart([]); setResellerName(''); setEndUserName(''); setIsUnofficial(false); setValidationError('');
+                }
+              }} className="w-full py-3 bg-gradient-to-br from-primary to-primary-container text-on-primary rounded-xl font-bold text-sm shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-[20px]">add</span> New Quote
               </button>
-              <div className="pt-4 border-t border-outline-variant/20 flex flex-col gap-1">
-                <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center gap-3 px-3 py-2 text-secondary hover:text-primary transition-colors rounded-lg">
+              <div className="pt-5 border-t border-outline-variant/20 flex flex-col gap-1">
+                <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Settings');}} className="flex items-center gap-3 px-3 py-2 text-secondary hover:text-primary transition-colors rounded-lg">
                   <span className="material-symbols-outlined">settings</span>
                   <span className="text-sm font-medium">Settings</span>
                 </a>
-                <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center gap-3 px-3 py-2 text-secondary hover:text-primary transition-colors rounded-lg">
+                <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Support');}} className="flex items-center gap-3 px-3 py-2 text-secondary hover:text-primary transition-colors rounded-lg">
                   <span className="material-symbols-outlined">help</span>
                   <span className="text-sm font-medium">Support</span>
                 </a>
@@ -960,21 +967,21 @@
           </aside>
 
           {/* Main Layout Area */}
-          <div className="flex-1 ml-56 flex flex-col min-h-screen">
+          <div className="flex-1 ml-[280px] flex flex-col min-h-screen">
             
             {/* Top Navbar */}
-            <header className="sticky top-0 w-full z-30 bg-surface/80 backdrop-blur-lg flex justify-between items-center h-16 px-8 border-b border-outline-variant/20">
+            <header className="sticky top-0 w-full z-30 bg-surface/80 backdrop-blur-lg flex justify-between items-center h-20 px-8 border-b border-outline-variant/20">
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-surface-container-low p-1 rounded-lg border border-outline-variant/30">
-                  <div className="flex items-center gap-1.5 px-3 border-r border-outline-variant/30">
-                    <span className="text-[10px] font-bold text-secondary uppercase tracking-wider">Currency</span>
-                    <select value={currency} onChange={handleCurrencyChange} className="bg-transparent font-bold text-sm text-primary focus:ring-0 border-0 py-1 pl-1 pr-6 cursor-pointer cursor-pointer">
+                <div className="flex items-center gap-2 bg-surface-container-low p-1.5 rounded-xl border border-outline-variant/30">
+                  <div className="flex items-center gap-2 px-3 border-r border-outline-variant/30">
+                    <span className="text-xs font-bold text-secondary uppercase tracking-wider">Currency</span>
+                    <select value={currency} onChange={handleCurrencyChange} className="bg-transparent font-bold text-sm text-primary focus:ring-0 border-0 py-1 pl-1 pr-6 cursor-pointer">
                       <option value="HKD">HKD</option><option value="USD">USD</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-1.5 px-3">
-                    <span className="text-[10px] font-bold text-secondary uppercase tracking-wider">Strategy</span>
-                    <select value={strategy} onChange={(e) => setStrategy(e.target.value)} className="bg-transparent font-bold text-sm text-primary focus:ring-0 border-0 py-1 pl-1 pr-6 cursor-pointer max-w-[220px] truncate">
+                  <div className="flex items-center gap-2 px-3">
+                    <span className="text-xs font-bold text-secondary uppercase tracking-wider">Strategy</span>
+                    <select value={strategy} onChange={(e) => setStrategy(e.target.value)} className="bg-transparent font-bold text-sm text-primary focus:ring-0 border-0 py-1 pl-1 pr-6 cursor-pointer max-w-[250px] truncate">
                       {Object.keys(STRATEGIES).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
@@ -982,12 +989,12 @@
               </div>
               
               <nav className="flex items-center gap-5">
-                <div className="flex items-center gap-3 group cursor-pointer" onClick={onLogout}>
+                <div className="flex items-center gap-3 group cursor-pointer hover:bg-surface-container-lowest px-3 py-1.5 rounded-xl transition-colors border border-transparent hover:border-outline-variant/20 shadow-sm" onClick={onLogout}>
                   <div className="text-right">
-                    <p className="text-xs font-bold text-on-surface group-hover:text-primary transition-colors">{displayUserName}</p>
-                    <p className="text-[10px] text-secondary flex items-center justify-end gap-1"><span className="material-symbols-outlined text-[12px]">logout</span> Logout</p>
+                    <p className="text-sm font-bold text-on-surface group-hover:text-primary transition-colors">{displayUserName}</p>
+                    <p className="text-[11px] text-secondary flex items-center justify-end gap-1"><span className="material-symbols-outlined text-[14px]">logout</span> Logout</p>
                   </div>
-                  <div className="w-9 h-9 rounded-full bg-primary-fixed text-primary flex items-center justify-center font-bold text-sm">
+                  <div className="w-10 h-10 rounded-full bg-primary-fixed text-primary flex items-center justify-center font-black text-lg shadow-sm border border-primary-fixed-dim">
                     {userInitial}
                   </div>
                 </div>
@@ -1000,37 +1007,37 @@
               {/* Page Header */}
               <div className="flex justify-between items-end mb-8">
                 <div>
-                  <h2 className="text-3xl font-black text-primary font-headline tracking-tight">Interactive Quote Generator</h2>
-                  <div className="flex items-center gap-3 mt-3">
-                    <button className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-high hover:bg-surface-variant text-primary text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors">
-                      <span className="material-symbols-outlined text-[16px]">description</span> Use Quote Template
+                  <h2 className="text-4xl font-black text-on-surface font-headline tracking-tight">Interactive Quote Generator</h2>
+                  <div className="flex items-center gap-3 mt-4">
+                    <button onClick={() => handlePlaceholderAction('Use Quote Template')} className="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-sm font-bold rounded-xl border border-outline-variant/30 transition-colors shadow-sm">
+                      <span className="material-symbols-outlined text-[18px] text-primary">description</span> Use Quote Template
                     </button>
-                    <button className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-high hover:bg-surface-variant text-primary text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors">
-                      <span className="material-symbols-outlined text-[16px]">history</span> Open Historic Quote
+                    <button onClick={() => handlePlaceholderAction('Open Historic Quote')} className="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-sm font-bold rounded-xl border border-outline-variant/30 transition-colors shadow-sm">
+                      <span className="material-symbols-outlined text-[18px] text-primary">history</span> Open Historic Quote
                     </button>
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  <button onClick={handleGenerateQuote} disabled={cart.length === 0} className="px-6 py-2.5 bg-gradient-to-br from-primary to-primary-container text-on-primary font-bold rounded-xl shadow-lg hover:shadow-primary/20 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
-                    <span className="material-symbols-outlined text-[18px]">receipt_long</span> Generate Quote
+                  <button onClick={handleGenerateQuote} disabled={cart.length === 0} className="px-8 py-3 bg-primary text-on-primary font-bold rounded-xl shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+                    <span className="material-symbols-outlined text-[20px]">receipt_long</span> Generate Quote
                   </button>
-                  {validationError && <p className="text-brand-red text-xs font-bold">{validationError}</p>}
+                  {validationError && <p className="text-brand-red text-xs font-bold bg-error-container px-3 py-1 rounded-md shadow-sm">{validationError}</p>}
                 </div>
               </div>
 
-              {/* Bento Grid: 12 Columns (Left 9, Right 3) */}
-              <div className="grid grid-cols-12 gap-6 items-start">
+              {/* Bento Grid: 8 Columns (Left 5, Right 3) */}
+              <div className="grid grid-cols-8 gap-8 items-start">
                 
-                {/* Left Canvas: Search & Table (col-span-9) */}
-                <div className="col-span-12 xl:col-span-9 space-y-6">
+                {/* Left Canvas: Search & Table (col-span-5) */}
+                <div className="col-span-8 xl:col-span-5 space-y-8">
                   
                   {/* Search & Filters Bento Box */}
-                  <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm ring-1 ring-outline-variant/20 relative z-20" ref={searchContainerRef}>
-                    <div className="flex flex-col gap-4">
+                  <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/20 relative z-20" ref={searchContainerRef}>
+                    <div className="flex flex-col gap-5">
                       {/* Search Bar */}
                       <div className="relative">
-                        <span className="absolute inset-y-0 left-4 flex items-center text-secondary">
-                          <span className="material-symbols-outlined">search</span>
+                        <span className="absolute inset-y-0 left-5 flex items-center text-secondary">
+                          <span className="material-symbols-outlined text-[22px]">search</span>
                         </span>
                         <input 
                           type="text" 
@@ -1039,44 +1046,44 @@
                           onFocus={() => setIsSearching(true)} 
                           disabled={loading} 
                           placeholder={loading ? "Loading product catalog..." : "Search by SKU, Product Name (space for AND query)"} 
-                          className="w-full pl-12 pr-4 py-3 bg-surface border border-outline-variant/30 rounded-xl text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all disabled:opacity-50 font-medium" 
+                          className="w-full pl-14 pr-4 py-3.5 bg-surface border border-outline-variant/30 rounded-xl text-[15px] focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all disabled:opacity-50 font-medium" 
                         />
                       </div>
                       
                       {/* Interactive Filters */}
-                      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 bg-surface-container-low p-3 rounded-xl border border-outline-variant/20">
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 bg-surface-container-low p-4 rounded-xl border border-outline-variant/20">
                         <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">category</span> Type
+                          <span className="text-[11px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-[16px]">category</span> Type
                           </span>
-                          <div className="flex gap-1">
+                          <div className="flex gap-1.5">
                             {productTypeOptions.map(opt => (
                               <button key={opt} onClick={() => toggleFilter(setFilterProductType, opt)}
-                                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterProductType.includes(opt) ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filterProductType.includes(opt) ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
                               >{opt}</button>
                             ))}
                           </div>
                         </div>
-                        <div className="w-px h-5 bg-outline-variant/40 hidden md:block"></div>
+                        <div className="w-px h-6 bg-outline-variant/40 hidden md:block"></div>
                         <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">class</span> Class
+                          <span className="text-[11px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-[16px]">class</span> Class
                           </span>
-                          <div className="flex gap-1 flex-wrap">
+                          <div className="flex gap-1.5 flex-wrap">
                             {productClassOptions.map(opt => (
                               <button key={opt} onClick={() => toggleFilter(setFilterProductClass, opt)}
-                                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterProductClass.includes(opt) ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${filterProductClass.includes(opt) ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
                               >{opt}</button>
                             ))}
                           </div>
                         </div>
-                        <div className="w-px h-5 bg-outline-variant/40 hidden lg:block"></div>
+                        <div className="w-px h-6 bg-outline-variant/40 hidden lg:block"></div>
                         <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">extension</span> HA SUB
+                          <span className="text-[11px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-[16px]">extension</span> HA SUB
                           </span>
                           <button onClick={() => setFilterIsHA(!filterIsHA)} 
-                            className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterIsHA ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${filterIsHA ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
                           >Yes</button>
                         </div>
                       </div>
@@ -1084,28 +1091,29 @@
 
                     {/* Typeahead Results */}
                     {isSearching && searchQuery.trim() !== '' && (
-                      <div className="absolute left-6 right-6 mt-2 bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-2xl max-h-[400px] overflow-y-auto z-50 divide-y divide-outline-variant/10">
+                      <div className="absolute left-6 right-6 mt-3 bg-surface-container-lowest border border-outline-variant/30 rounded-2xl shadow-2xl max-h-[450px] overflow-y-auto z-50 divide-y divide-outline-variant/10">
                         {searchResults.length === 0 ? (
-                          <div className="p-6 text-sm text-secondary text-center flex flex-col items-center">
-                            <span className="material-symbols-outlined text-4xl text-outline-variant mb-2">search_off</span>
-                            No matching products found in current filters.
+                          <div className="p-10 text-sm text-secondary text-center flex flex-col items-center">
+                            <span className="material-symbols-outlined text-5xl text-outline-variant mb-3">search_off</span>
+                            <span className="font-medium text-lg text-on-surface">No results found</span>
+                            <span className="mt-1">Please try different keywords or clear current filters.</span>
                           </div>
                         ) : (
                           searchResults.map(prod => (
-                            <div key={prod.SKU} onClick={() => addToCart(prod)} className="p-4 hover:bg-surface-container-low cursor-pointer flex justify-between items-center group transition-colors">
-                              <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center shrink-0">
-                                  <span className="material-symbols-outlined text-primary/70">inventory_2</span>
+                            <div key={prod.SKU} onClick={() => addToCart(prod)} className="p-5 hover:bg-surface-container-low cursor-pointer flex justify-between items-center group transition-colors">
+                              <div className="flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-xl bg-surface-container flex items-center justify-center shrink-0 border border-outline-variant/20 group-hover:bg-primary group-hover:text-on-primary transition-colors">
+                                  <span className="material-symbols-outlined">inventory_2</span>
                                 </div>
                                 <div className="min-w-0">
-                                  <div className="font-bold text-sm text-on-surface mb-0.5 truncate">{prod.SKU}</div>
-                                  <div className="text-xs text-secondary truncate">{prod.Description}</div>
+                                  <div className="font-bold text-[15px] text-on-surface mb-0.5 truncate">{prod.SKU}</div>
+                                  <div className="text-[13px] text-secondary truncate">{prod.Description}</div>
                                 </div>
                               </div>
                               <div className="flex items-center gap-4 shrink-0">
-                                <span className="text-[10px] font-bold uppercase tracking-wider bg-surface-variant text-on-surface-variant px-2.5 py-1 rounded-full">{prod.Product_type}</span>
-                                <button className="w-8 h-8 rounded-full bg-primary-fixed text-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100">
-                                  <span className="material-symbols-outlined text-[18px]">add</span>
+                                <span className="text-[10px] font-black uppercase tracking-wider bg-surface-variant text-on-surface-variant px-3 py-1.5 rounded-full">{prod.Product_type}</span>
+                                <button className="w-9 h-9 rounded-full bg-primary-fixed text-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100 shadow-sm">
+                                  <span className="material-symbols-outlined text-[20px]">add</span>
                                 </button>
                               </div>
                             </div>
@@ -1116,30 +1124,37 @@
                   </div>
 
                   {/* Line Items Table Box */}
-                  <div className="bg-surface-container-lowest rounded-2xl shadow-sm ring-1 ring-outline-variant/20 overflow-hidden relative z-10">
-                    <div className="overflow-x-auto">
+                  <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/20 overflow-hidden relative z-10">
+                    <div className="p-5 border-b border-outline-variant/20 flex justify-between items-center bg-surface">
+                      <h3 className="font-headline font-bold text-on-surface flex items-center gap-2 text-lg">
+                        <span className="material-symbols-outlined text-primary text-[22px]">list_alt</span> Line Items
+                      </h3>
+                      <span className="text-xs font-black uppercase tracking-wider text-secondary bg-surface-container-high px-3 py-1.5 rounded-lg border border-outline-variant/30">{cart.length} Items</span>
+                    </div>
+                    <div className="overflow-x-auto min-h-[300px]">
                       <table className="w-full text-left whitespace-nowrap">
                         <thead>
                           <tr className="bg-surface-container-low border-b border-outline-variant/20">
-                            <th className="px-4 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label w-56">Product Details</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Unit Price ({currency})</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Disc (%)</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Disty Cost</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Qty</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Term</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Margin</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Incentive</th>
-                            <th className="px-4 py-3 text-[10px] font-extrabold text-primary uppercase tracking-widest font-label text-right bg-primary-fixed/30">Ext. Price</th>
-                            <th className="px-2 py-3 w-16"></th>
+                            <th className="px-5 py-3 text-[10px] font-black text-secondary uppercase tracking-widest font-label w-64">Product Details</th>
+                            <th className="px-3 py-3 text-[10px] font-black text-secondary uppercase tracking-widest font-label text-right">Unit Price ({currency})</th>
+                            <th className="px-3 py-3 text-[10px] font-black text-secondary uppercase tracking-widest font-label text-center">Disc (%)</th>
+                            <th className="px-3 py-3 text-[10px] font-black text-secondary uppercase tracking-widest font-label text-right">Disty Cost</th>
+                            <th className="px-3 py-3 text-[10px] font-black text-secondary uppercase tracking-widest font-label text-center">Qty</th>
+                            <th className="px-3 py-3 text-[10px] font-black text-secondary uppercase tracking-widest font-label text-center">Term</th>
+                            <th className="px-3 py-3 text-[10px] font-black text-secondary uppercase tracking-widest font-label text-center">Margin</th>
+                            <th className="px-3 py-3 text-[10px] font-black text-secondary uppercase tracking-widest font-label text-right">Incentive</th>
+                            <th className="px-4 py-3 text-[10px] font-black text-primary uppercase tracking-widest font-label text-right bg-primary-fixed/30">Ext. Price</th>
+                            <th className="px-3 py-3 w-16"></th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-outline-variant/10">
                           {cart.length === 0 ? (
                             <tr>
-                              <td colSpan="10" className="px-6 py-20 text-center text-secondary">
+                              <td colSpan="10" className="px-6 py-24 text-center text-secondary">
                                 <div className="flex flex-col items-center justify-center">
-                                  <span className="material-symbols-outlined text-5xl mb-3 text-outline-variant/50">post_add</span>
-                                  <p className="font-medium text-sm">Cart is empty. Search above to add items.</p>
+                                  <span className="material-symbols-outlined text-6xl mb-4 text-outline-variant/50">post_add</span>
+                                  <p className="font-bold text-base text-on-surface">Cart is empty.</p>
+                                  <p className="font-medium text-sm mt-1">Search above to add products to your quotation.</p>
                                 </div>
                               </td>
                             </tr>
@@ -1148,7 +1163,7 @@
                               if (row.type === 'header') {
                                 return (
                                   <tr key={row.id} className="bg-surface-variant/40">
-                                    <td colSpan="10" className="px-5 py-2.5 text-xs font-black text-on-surface uppercase tracking-[0.15em] font-headline border-y border-outline-variant/10">
+                                    <td colSpan="10" className="px-6 py-3 text-xs font-black text-on-surface uppercase tracking-[0.2em] font-headline border-y border-outline-variant/10">
                                       {row.title}
                                     </td>
                                   </tr>
@@ -1161,18 +1176,18 @@
                               const isTermZero = Number(item.product.Term_months || 0) === 0;
 
                               return (
-                                <tr key={item.id} className="hover:bg-surface-container-highest/20 transition-colors group">
-                                  <td className="px-4 py-4">
-                                    <div className="font-bold text-on-surface text-[13px] leading-tight mb-0.5 truncate max-w-[200px]">{item.product.SKU}</div>
-                                    <div className="text-[11px] text-secondary max-w-[200px] truncate mb-1.5" title={item.product.Description}>{item.product.Description}</div>
-                                    <div className="text-[9px] font-bold uppercase tracking-wider bg-surface-container text-secondary inline-block px-1.5 py-0.5 rounded">{item.product.Product_type}</div>
+                                <tr key={item.id} className="hover:bg-surface-container-highest/30 transition-colors group">
+                                  <td className="px-5 py-4">
+                                    <div className="font-bold text-on-surface text-[14px] leading-tight mb-1 truncate max-w-[240px]">{item.product.SKU}</div>
+                                    <div className="text-[12px] text-secondary max-w-[240px] truncate mb-2" title={item.product.Description}>{item.product.Description}</div>
+                                    <div className="text-[10px] font-bold uppercase tracking-wider bg-surface-container text-secondary inline-block px-2 py-0.5 rounded-md">{item.product.Product_type}</div>
                                   </td>
                                   
                                   <td className="px-3 py-4 text-right">
-                                    <div className="flex items-center justify-end gap-1">
+                                    <div className="flex items-center justify-end gap-1.5">
                                       <span className="text-secondary font-bold text-xs">{currency === 'USD' ? '$' : 'HK$'}</span>
                                       <input type="number" step="0.01" min="0" disabled={!isEditableListPrice}
-                                        className={`w-[76px] border border-outline-variant/30 rounded-lg p-1 text-[12px] text-right font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${!isEditableListPrice ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest font-bold'}`}
+                                        className={`w-[80px] border border-outline-variant/30 rounded-lg p-1.5 text-[13px] text-right font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${!isEditableListPrice ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest font-bold'}`}
                                         value={item.manualListPrice !== null ? item.manualListPrice : calc.listPrice}
                                         onChange={(e) => updateRow(item.id, 'manualListPrice', e.target.value === '' ? null : parseFloat(e.target.value))}
                                       />
@@ -1182,24 +1197,24 @@
                                   <td className="px-3 py-4 text-center">
                                     <div className="flex items-center justify-center gap-1">
                                       <input type="number" step="0.1" min="0" max="100"
-                                        className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                        className="w-[56px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1.5 text-[13px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
                                         value={Number(((item.manualDiscount !== null ? item.manualDiscount : calc.appliedDiscount) * 100).toFixed(2))}
                                         onChange={(e) => updateRow(item.id, 'manualDiscount', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
                                       />
                                     </div>
                                   </td>
 
-                                  <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{formatMoney(calc.distyCost)}</td>
+                                  <td className="px-3 py-4 text-right text-secondary font-mono text-[13px]">{formatMoney(calc.distyCost)}</td>
                                   
                                   <td className="px-3 py-4 text-center">
                                     <input type="number" min="1" 
-                                      className="w-[48px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                      className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1.5 text-[13px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
                                       value={item.qty} onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)} />
                                   </td>
                                   
                                   <td className="px-3 py-4 text-center">
                                     <input type="number" min="0" max="60" disabled={isTermZero}
-                                      className={`w-[44px] border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none ${isTermZero ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest'}`}
+                                      className={`w-[48px] border border-outline-variant/30 rounded-lg p-1.5 text-[13px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none ${isTermZero ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest'}`}
                                       value={item.termMonths === '' ? '' : item.termMonths} 
                                       onChange={(e) => updateRow(item.id, 'termMonths', e.target.value)} 
                                       onBlur={(e) => handleTermBlur(item.id, item.product.SKU, e.target.value)}
@@ -1209,24 +1224,24 @@
                                   <td className="px-3 py-4 text-center">
                                     <div className="flex items-center justify-center gap-1">
                                       <input type="number" step="0.1" min="0" max="100"
-                                        className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                        className="w-[56px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1.5 text-[13px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
                                         value={Number(((item.manualMargin !== null ? item.manualMargin : calc.appliedMargin) * 100).toFixed(2))}
                                         onChange={(e) => updateRow(item.id, 'manualMargin', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
                                       />
                                     </div>
                                   </td>
 
-                                  <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
+                                  <td className="px-3 py-4 text-right text-secondary font-mono text-[13px]">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
                                   
-                                  <td className="px-4 py-4 text-right font-black text-primary bg-primary-fixed/10 font-mono text-[13px]">{formatMoney(calc.extendedPrice, true)}</td>
+                                  <td className="px-4 py-4 text-right font-black text-primary bg-primary-fixed/10 font-mono text-[14px]">{formatMoney(calc.extendedPrice, true)}</td>
                                   
-                                  <td className="px-2 py-4 text-center align-middle">
+                                  <td className="px-3 py-4 text-center align-middle">
                                     <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <button onClick={() => duplicateRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-primary hover:bg-surface-container-high transition-colors flex items-center justify-center" title="Duplicate">
-                                        <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                                      <button onClick={() => duplicateRow(item.id)} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-secondary hover:text-primary hover:bg-surface-container-high transition-colors flex items-center justify-center" title="Duplicate">
+                                        <span className="material-symbols-outlined text-[18px]">content_copy</span>
                                       </button>
-                                      <button onClick={() => removeRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-brand-red hover:bg-error-container transition-colors flex items-center justify-center" title="Delete">
-                                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                                      <button onClick={() => removeRow(item.id)} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-secondary hover:text-brand-red hover:bg-error-container hover:border-error-container transition-colors flex items-center justify-center" title="Delete">
+                                        <span className="material-symbols-outlined text-[18px]">delete</span>
                                       </button>
                                     </div>
                                   </td>
@@ -1244,37 +1259,202 @@
                 <div className="col-span-12 xl:col-span-3 space-y-6">
                   
                   {/* Blue Summary Card */}
-                  <div className="bg-primary rounded-3xl p-6 text-on-primary shadow-xl relative overflow-hidden">
-                    <div className="absolute -right-16 -top-16 w-64 h-64 bg-white rounded-full blur-3xl opacity-10 pointer-events-none"></div>
+                  <div className="bg-primary rounded-[24px] p-7 text-on-primary shadow-xl relative overflow-hidden">
+                    <div className="absolute -right-20 -top-20 w-72 h-72 bg-white rounded-full blur-3xl opacity-10 pointer-events-none"></div>
                     <div className="relative z-10">
-                      <p className="text-primary-fixed text-[10px] font-black uppercase tracking-widest font-label mb-3">Quote Summary</p>
+                      <p className="text-primary-fixed text-[11px] font-black uppercase tracking-[0.2em] font-headline mb-4 opacity-90 flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[18px]">payments</span> Quote Summary
+                      </p>
                       
-                      <div className="space-y-3 text-sm font-label">
-                        <div className="flex justify-between border-b border-white/20 pb-3">
+                      <div className="space-y-3.5 text-[15px] font-label">
+                        <div className="flex justify-between border-b border-white/10 pb-3.5">
                           <span className="text-inverse-primary font-medium">Subtotal</span>
                           <span className="font-bold font-mono">{formatMoney(subTotalAmount, true)}</span>
                         </div>
                         {appliedOverallDiscount.value > 0 && (
-                          <div className="flex justify-between border-b border-white/20 pb-3">
+                          <div className="flex justify-between border-b border-white/10 pb-3.5">
                             <span className="text-tertiary-fixed font-medium">Overall Discount</span>
                             <span className="font-bold font-mono text-tertiary-fixed">-{formatMoney(overallDiscountAmount, true)}</span>
                           </div>
                         )}
-                        <div className="flex justify-between pt-2">
-                          <span className="text-white font-black text-lg">Total Amount</span>
-                          <span className="text-white font-black text-2xl font-mono tracking-tight">{formatMoney(totalAmount, true)}</span>
+                        <div className="flex justify-between pt-3 pb-5">
+                          <span className="text-white font-black text-xl">Total Amount</span>
+                          <span className="text-white font-black text-3xl font-mono tracking-tight">{formatMoney(totalAmount, true)}</span>
                         </div>
                         
-                        <div className="border-t border-white/20 my-4"></div>
+                        <div className="bg-primary-container rounded-xl p-4 border border-white/5 space-y-3">
+                          <div className="flex justify-between items-center text-[13px]">
+                            <span className="text-primary-fixed-dim font-medium">Booking to Vendor</span>
+                            <span className="font-mono text-white font-medium">{formatMoney(totalBookingToVendor, true)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[13px]">
+                            <span className="text-primary-fixed-dim font-medium">Other Cost</span>
+                            <span className="font-mono text-white font-medium">{formatMoney(totalOtherCost, true)}</span>
+                          </div>
+                          <div className="flex justify-between items-center pt-2 mt-1 border-t border-white/10">
+                            <span className="text-white font-bold text-[14px]">Gross Margin</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-white text-[15px]">{formatMoney(totalGrossMarginAmount, true)}</span>
+                              <span className="text-[10px] font-black text-brand-red bg-white px-2 py-0.5 rounded shadow-sm">
+                                {totalGrossMarginPercent.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Client Details Form */}
+                  <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/20">
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-[15px] font-headline font-black text-on-surface flex items-center gap-2">
+                        <span className="material-symbols-outlined text-primary text-[20px]">person</span> Document Info
+                      </h3>
+                      <button onClick={handleToggleUnofficial} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all border ${isUnofficial ? 'bg-primary text-on-primary border-primary shadow-md' : 'bg-surface border-outline-variant/30 text-secondary hover:bg-surface-container-highest'}`}>
+                        {isUnofficial ? 'Unofficial' : 'Official'}
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[11px] font-bold text-secondary mb-2 uppercase tracking-wide">Reseller Name</label>
+                        <input type="text" placeholder="e.g. Ingram Micro" value={resellerName} onChange={(e) => setResellerName(e.target.value)} disabled={isUnofficial}
+                          className={`w-full border border-outline-variant/30 rounded-xl p-3 text-sm font-medium focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface'}`} 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-secondary mb-2 uppercase tracking-wide">End User Name</label>
+                        <input type="text" placeholder="e.g. Metropolis Tower" value={endUserName} onChange={(e) => setEndUserName(e.target.value)} disabled={isUnofficial}
+                          className={`w-full border border-outline-variant/30 rounded-xl p-3 text-sm font-medium focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface'}`} 
+                        />
+                      </div>
+                      
+                      {/* Client Mock Contact (Placeholder from DESIGN) */}
+                      {!isUnofficial && (
+                        <div className="mt-6 pt-5 border-t border-outline-variant/20 space-y-2">
+                          <p className="text-[10px] font-bold text-secondary uppercase tracking-widest mb-3">CRM Sync</p>
+                          <div className="flex items-center justify-between p-3 bg-surface rounded-xl border border-outline-variant/10 text-xs text-secondary hover:bg-surface-container-high transition-colors cursor-pointer" onClick={() => handlePlaceholderAction('Sync CRM Email')}>
+                            <div className="flex items-center gap-3">
+                              <span className="material-symbols-outlined text-primary text-[18px]">mail</span>
+                              <span className="font-medium">{endUserName ? 'Fetch from CRM...' : 'Enter client name to sync'}</span>
+                            </div>
+                            <span className="material-symbols-outlined text-[16px]">sync</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Global Pricing Controls */}
+                  <div className="bg-surface-container-low rounded-2xl p-6 border border-outline-variant/20 shadow-sm">
+                    <h3 className="text-[15px] font-headline font-black text-on-surface flex items-center gap-2 mb-6">
+                      <span className="material-symbols-outlined text-primary text-[20px]">tune</span> Pricing Controls
+                    </h3>
+                    
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-secondary uppercase tracking-wider">Incentive</label>
+                          <button onClick={() => setIsNoIncentive(!isNoIncentive)}
+                            className={`w-full py-2.5 text-xs font-bold rounded-xl border transition-all ${isNoIncentive ? 'bg-primary text-on-primary border-primary shadow-md' : 'bg-surface-container-lowest text-secondary border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                          >Cancel Incentive</button>
+                        </div>
                         
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-inverse-primary font-medium">Booking to Vendor</span>
-                          <span className="font-mono">{formatMoney(totalBookingToVendor, true)}</span>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-secondary uppercase tracking-wider">Bulk Qty</label>
+                          <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-1 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all">
+                            <input type="number" min="1" step="1" value={bulkQty} onChange={(e) => setBulkQty(e.target.value)} 
+                              className="w-full bg-transparent border-0 text-sm text-center font-bold font-mono focus:ring-0 p-0 text-on-surface" />
+                            <button onClick={handleBulkUpdateQty} className="px-3 bg-surface-container-high rounded-lg text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
+                          </div>
                         </div>
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-inverse-primary font-medium">Other Cost</span>
-                          <span className="font-mono">{formatMoney(totalOtherCost, true)}</span>
+                        
+                        <div className="space-y-2 col-span-2">
+                          <label className="text-[10px] font-bold text-secondary uppercase tracking-wider">Bulk Margin (%)</label>
+                          <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-1 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all">
+                            <input type="number" min="0" step="1" value={bulkMargin} onChange={(e) => setBulkMargin(e.target.value)} 
+                              className="w-full bg-transparent border-0 text-sm text-center font-bold font-mono focus:ring-0 p-0 text-on-surface" />
+                            <button onClick={handleBulkUpdateMargin} className="px-4 bg-surface-container-high rounded-lg text-[11px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
+                          </div>
                         </div>
-                        <div className="flex justify-between items-center text-sm pt-2">
-                          <span className="text-white font-bold">Gross Margin</span>
-                          <div className="flex items
+                      </div>
+
+                      <div className="pt-5 border-t border-outline-variant/20">
+                        <label className="block text-[10px] font-bold text-secondary uppercase mb-3 tracking-wider">Overall Discount</label>
+                        <div className="flex items-center gap-2">
+                          <div className="flex bg-surface-container-highest rounded-xl p-1 shrink-0 border border-outline-variant/20">
+                            <button onClick={() => setDiscountType('$')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${discountType === '$' ? 'bg-surface-container-lowest text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}>$</button>
+                            <button onClick={() => setDiscountType('%')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${discountType === '%' ? 'bg-surface-container-lowest text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}>%</button>
+                          </div>
+                          <input type="number" min="0" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} placeholder="0" className="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant/30 rounded-xl px-3 py-2.5 text-sm font-mono font-bold focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-on-surface transition-all" />
+                          <button onClick={handleApplyOverallDiscount} className="px-3 py-2.5 text-[11px] font-black rounded-xl bg-primary text-on-primary hover:bg-primary-container transition-colors shadow-md">SET</button>
+                          <button onClick={handleResetOverallDiscount} className="px-2.5 py-2.5 text-[11px] font-black rounded-xl bg-surface-container-highest text-secondary hover:bg-brand-red hover:text-white transition-colors border border-outline-variant/20" title="Reset"><span className="material-symbols-outlined text-[16px]">refresh</span></button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Activity Log Placeholder */}
+                  <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/20">
+                    <div className="flex justify-between items-center mb-5">
+                      <span className="px-3 py-1.5 bg-primary-fixed text-on-primary-fixed text-[10px] font-black uppercase tracking-widest rounded-full">Drafting</span>
+                      <span className="text-[10px] text-secondary font-label font-bold flex items-center gap-1">
+                         <span className="material-symbols-outlined text-[14px]">history</span> ID: Auto-gen
+                      </span>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="flex gap-3 items-start">
+                        <div className="mt-1 w-2 h-2 rounded-full bg-primary/70 shrink-0"></div>
+                        <div className="text-[11px] text-secondary">
+                          <p className="font-bold text-on-surface text-[12px]">Session Started</p>
+                          <p className="mt-0.5">Quote document created.</p>
+                          <p className="text-outline mt-1 font-mono text-[10px]">Just now</p>
+                        </div>
+                      </div>
+                      {cart.length > 0 && cart.slice(-2).reverse().map((item, idx) => (
+                         <div key={idx} className="flex gap-3 items-start">
+                            <div className="mt-1 w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div>
+                            <div className="text-[11px] text-secondary">
+                              <p className="font-bold text-on-surface text-[12px]">Item Added</p>
+                              <p className="mt-0.5 truncate max-w-[200px]">{item.product.SKU} ({item.qty} units)</p>
+                              <p className="text-outline mt-1 font-mono text-[10px]">Recently</p>
+                            </div>
+                         </div>
+                      ))}
+                    </div>
+                    <button onClick={() => handlePlaceholderAction('View Activity Logs')} className="w-full mt-6 py-2.5 text-xs font-bold text-primary bg-surface hover:bg-surface-container-highest rounded-xl transition-colors border border-outline-variant/20">
+                      View Full Activity Log
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      );
+    }
+
+    let isAppRendered = false;
+    const mountReactApp = () => {
+      if (isAppRendered) return;
+      isAppRendered = true;
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) loadingEl.style.display = 'none';
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App fb={window.FirebaseLib} />);
+    };
+
+    window.addEventListener('firebase-loaded', mountReactApp);
+    window.addEventListener('firebase-failed', mountReactApp);
+
+    setTimeout(() => {
+      if (!isAppRendered) {
+        console.warn("模組載入逾時，強制以模擬模式啟動。");
+        mountReactApp();
+      }
+    }, 2500);
+  </script>
+</body>
+</html>
