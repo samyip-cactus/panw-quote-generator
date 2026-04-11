@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Architect's Ledger | Quote Generator</title>
+  <title>Ingram Micro | Quote Generator</title>
   
   <!-- 載入 Tailwind CSS 與套件 (無 crossorigin 避免被阻擋) -->
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
@@ -332,12 +332,9 @@
                   目前為離線/本機模擬模式 (Mock Mode)
                 </div>
               )}
-              <div className="flex justify-center mb-6 mt-4">
-                <div className="h-16 w-16 bg-primary-container text-on-primary rounded-full flex items-center justify-center shadow-md">
-                  <span className="material-symbols-outlined text-3xl">request_quote</span>
-                </div>
+              <div className="flex justify-center mb-8 mt-4">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/1/18/Ingram_Micro_Logo.svg" alt="Ingram Micro" className="h-10 object-contain" />
               </div>
-              <h1 className="text-2xl font-black text-center mb-2 font-headline text-primary tracking-tight">Architect's Ledger</h1>
               <p className="text-center text-secondary mb-10 text-sm font-label tracking-wide">Team Palo Alto Networks Login</p>
               
               <button 
@@ -811,8 +808,8 @@
                     <p className="text-sm text-secondary font-label"><span className="font-semibold w-24 inline-block">End User:</span> {endUserName || '____________________'}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-bold text-on-surface text-lg font-headline">Architect's Ledger</p>
+                <div className="text-right flex flex-col items-end">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/1/18/Ingram_Micro_Logo.svg" alt="Ingram Micro" className="h-6 object-contain mb-2" />
                   <p className="text-sm text-secondary font-label">Team Palo Alto Networks</p>
                   <p className="text-sm font-bold text-primary mt-2">Currency: {currency}</p>
                   
@@ -919,9 +916,9 @@
 
           {/* Sidebar */}
           <aside className="w-56 fixed left-0 top-0 h-screen border-r border-outline-variant/20 bg-surface-container-lowest flex flex-col py-6 z-40">
-            <div className="px-5 mb-10">
-              <h1 className="text-xl font-black text-primary font-headline tracking-tight">Architect's Ledger</h1>
-              <p className="text-xs text-secondary font-label mt-1">Team Palo Alto Networks</p>
+            <div className="px-6 mb-8 mt-2">
+              <img src="https://upload.wikimedia.org/wikipedia/commons/1/18/Ingram_Micro_Logo.svg" alt="Ingram Micro" className="h-7 object-contain" />
+              <p className="text-[10px] text-secondary font-label mt-3 uppercase tracking-widest font-bold">Team Palo Alto Networks</p>
             </div>
             <nav className="flex-1 flex flex-col px-3 space-y-1">
               <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Dashboard');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
