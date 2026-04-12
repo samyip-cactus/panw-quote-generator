@@ -422,6 +422,14 @@ Fax : (852) 2561 6537`;
       const [toastMessage, setToastMessage] = useState('');
       const [validationError, setValidationError] = useState('');
       
+      // == Pipeline Modal States ==
+      const [showPipelineModal, setShowPipelineModal] = useState(false);
+      const [pipelineModalStep, setPipelineModalStep] = useState(1);
+      const [pipelineStage, setPipelineStage] = useState('Pipeline');
+      const [dealRegStatus, setDealRegStatus] = useState('New Logo');
+      const [oppNumber, setOppNumber] = useState('');
+      const [pipelineError, setPipelineError] = useState('');
+
       const [filterProductType, setFilterProductType] = useState(['Production']);
       const [filterProductClass, setFilterProductClass] = useState(['Product', 'Subscription', 'Support']);
       const [filterIsHA, setFilterIsHA] = useState(false);
@@ -450,21 +458,22 @@ Fax : (852) 2561 6537`;
           const pClass = (item.product.Product_class || '').toUpperCase();
           const desc = (item.product.Description || '').toUpperCase();
 
-          // 忽略配件類產品，只留下設備、授權或服務
+          // 忽略配件類產品
           if (group === 'ACCESSORIES' || pClass === 'HW ACCESSORY' || desc.includes('ACCESSORY')) return;
           if (!model) return;
 
+          // 計算同一 Model 在所有 Line item 中的最小數量
           if (!summary[model]) {
-            summary[model] = 0;
+            summary[model] = item.qty;
+          } else {
+            summary[model] = Math.min(summary[model], item.qty);
           }
-          summary[model] += item.qty;
         });
         
-        // 轉為陣列回傳供畫面渲染
         return Object.entries(summary).map(([model, qty]) => ({ model, qty }));
       }, [cart]);
 
-      // 自動拼湊不重複且帶數量的 Quote Name
+      // 自動拼湊不重複且帶最小數量的 Quote Name
       const generatedQuoteName = useMemo(() => {
         return modelSummary.map(m => `${m.qty}x ${m.model}`).join(', ');
       }, [modelSummary]);
@@ -630,18 +639,6 @@ Fax : (852) 2561 6537`;
         setCurrency(newCurrency);
       };
 
-      const productTypeOptions = useMemo(() => {
-        const types = new Set(products.map(p => p.Product_type).filter(Boolean));
-        if (!types.has('Production')) types.add('Production');
-        return Array.from(types);
-      }, [products]);
-
-      const productClassOptions = useMemo(() => {
-        const classes = new Set(products.map(p => p.Product_class).filter(Boolean));
-        ['Product', 'Subscription', 'Support'].forEach(c => classes.add(c));
-        return Array.from(classes);
-      }, [products]);
-
       const toggleFilter = (setState, val) => {
         setState(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
       };
@@ -668,6 +665,7 @@ Fax : (852) 2561 6537`;
         return preFiltered.filter(p => {
           const docId = (p.id || p.SKU || '').toLowerCase();
           const desc = (p.Description || '').toLowerCase();
+          // AND 搜尋邏輯
           return terms.every(term => docId.includes(term) || desc.includes(term));
         }).slice(0, 20);
       }, [searchQuery, products, filterProductType, filterProductClass, filterIsHA]);
@@ -854,11 +852,14 @@ Fax : (852) 2561 6537`;
       const totalGrossMarginAmount = totalAmount - totalBookingToVendor - totalOtherCost;
       const totalGrossMarginPercent = totalAmount > 0 ? (totalGrossMarginAmount / totalAmount) * 100 : 0;
 
+      // ==========================================
+      // Firebase Saving Logic
+      // ==========================================
       const saveQuotation = async (finalValidDate) => {
         if (cart.length === 0) return;
         const quotationData = {
           QuoteID: quoteId,
-          QuoteName: generatedQuoteName, // 自動生成的 Quote Name
+          QuoteName: generatedQuoteName,
           Date: new Date().toISOString(), 
           QuoteValidDate: finalValidDate || validDate,
           CreatedAt: createdAt, 
@@ -882,7 +883,7 @@ Fax : (852) 2561 6537`;
         };
 
         if (isMockMode || !db || !user) {
-          console.log("=== 準備寫入 (模擬模式) ===", JSON.stringify(quotationData, null, 2));
+          console.log("=== 準備寫入報價單 (模擬模式) ===", JSON.stringify(quotationData, null, 2));
           return;
         }
 
@@ -894,6 +895,54 @@ Fax : (852) 2561 6537`;
         } catch (error) {
           console.error("儲存失敗:", error);
           alert("儲存報價單失敗：" + error.message);
+        }
+      };
+
+      const savePipeline = async (finalValidDate) => {
+        const timestamp = quoteId.split('-')[1] || Date.now();
+        const opptyId = `OPPTY-${timestamp}`;
+        const opptyName = `${resellerName || 'Unknown'}/${endUserName || 'Unknown'}/${generatedQuoteName}`;
+
+        const pipelineData = {
+          OpptyID: opptyId,
+          OpptyName: opptyName,
+          Date: new Date().toISOString(),
+          QuoteValidDate: finalValidDate || validDate,
+          CreatedAt: createdAt,
+          UpdatedAt: new Date().toISOString(),
+          Currency: currency,
+          AppliedStrategy: strategy,
+          TotalAmount: totalAmount,
+          ResellerName: resellerName || 'Unknown',
+          EndUserName: endUserName || 'Unknown',
+          PreparedBy: displayUserName,
+          PipelineStage: pipelineStage,
+          DealRegStatus: dealRegStatus,
+          RegNumber: dealRegStatus === 'OPP' ? oppNumber : '',
+          Items: groupedCart.filter(row => row.type === 'item').map(item => {
+            const calc = getCalculatedRow(item);
+            return {
+              ProductClass: item.product.Product_class,
+              SKU: item.product.SKU, Description: item.product.Description, Qty: item.qty, Term: item.termMonths,
+              ListPrice: calc.listPrice, Discount: calc.appliedDiscount, DistyCost: calc.distyCost,
+              Margin: calc.appliedMargin, ExtendedPrice: calc.extendedPrice
+            };
+          })
+        };
+
+        if (isMockMode || !db || !user) {
+          console.log("=== 準備寫入 Pipeline (模擬模式) ===", JSON.stringify(pipelineData, null, 2));
+          return;
+        }
+
+        try {
+          const { collection, doc, setDoc } = fb;
+          const opptyRef = collection(db, 'opportunity');
+          const opptyDocRef = doc(opptyRef, opptyId);
+          await setDoc(opptyDocRef, pipelineData, { merge: true });
+        } catch (error) {
+          console.error("儲存 Pipeline 失敗:", error);
+          alert("儲存 Pipeline 失敗：" + error.message);
         }
       };
 
@@ -910,12 +959,36 @@ Fax : (852) 2561 6537`;
             return;
           }
           setValidationError('');
-          await saveQuotation(finalValidDate);
+          // 正式報價 -> 顯示 Pipeline Modal
+          setShowPipelineModal(true);
+          setPipelineModalStep(1);
+          setPipelineError('');
         } else {
           setValidationError('');
-          // 非正式報價跳過儲存
+          // 非正式報價 -> 直接跳過儲存與 Pipeline，進入預覽
+          setIsPreview(true);
+        }
+      };
+
+      const submitPipelineAndQuote = async () => {
+        if (dealRegStatus === 'OPP' && !oppNumber.trim()) {
+          setPipelineError('OPP# is required when Deal Reg Status is OPP.');
+          return;
         }
         
+        let finalValidDate = validDate || getDefaultValidDate();
+        await savePipeline(finalValidDate);
+        await saveQuotation(finalValidDate);
+        
+        setShowPipelineModal(false);
+        setIsPreview(true);
+      };
+      
+      const skipPipelineAndQuote = async () => {
+        let finalValidDate = validDate || getDefaultValidDate();
+        await saveQuotation(finalValidDate);
+        
+        setShowPipelineModal(false);
         setIsPreview(true);
       };
 
@@ -975,7 +1048,7 @@ Fax : (852) 2561 6537`;
               });
               worksheet.mergeCells(`A${groupRow.number}:F${groupRow.number}`);
             } else {
-              const calc = getCalculatedRow(row);
+              const calc = getCalculatedRow(item);
               const unitPrice = row.qty > 0 ? calc.extendedPrice / row.qty : 0;
               const termVal = row.termMonths == 0 ? '-' : row.termMonths;
 
@@ -1156,7 +1229,80 @@ Fax : (852) 2561 6537`;
       // 主系統版面 (Bento / Dashboard Style)
       // ----------------------------------------------------
       return (
-        <div className="min-h-screen bg-surface flex font-body">
+        <div className="min-h-screen bg-surface flex font-body relative">
+          
+          {/* Pipeline 彈窗 */}
+          {showPipelineModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40 backdrop-blur-sm p-4 transition-all">
+              <div className="bg-surface-container-lowest rounded-2xl shadow-2xl max-w-md w-full border border-outline-variant/30 overflow-hidden">
+                {pipelineModalStep === 1 ? (
+                  <div className="p-7">
+                    <div className="flex items-center gap-3 text-primary mb-3">
+                      <span className="material-symbols-outlined text-3xl">account_tree</span>
+                      <h3 className="text-xl font-headline font-black tracking-tight">Create Pipeline?</h3>
+                    </div>
+                    <p className="text-[13px] text-secondary font-label mb-8 leading-relaxed">
+                      Do you want to create an opportunity pipeline record for this quote simultaneously?
+                    </p>
+                    <div className="flex justify-end gap-3">
+                      <button onClick={skipPipelineAndQuote} className="px-5 py-2.5 rounded-xl font-bold text-secondary bg-surface hover:bg-surface-container-highest transition-colors text-sm">
+                        No, just quote
+                      </button>
+                      <button onClick={() => setPipelineModalStep(2)} className="px-6 py-2.5 rounded-xl font-bold text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-md text-sm">
+                        Yes, create
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-7">
+                    <div className="flex items-center gap-3 text-primary mb-6">
+                      <span className="material-symbols-outlined text-2xl">post_add</span>
+                      <h3 className="text-lg font-headline font-black tracking-tight">Pipeline Details</h3>
+                    </div>
+                    
+                    <div className="space-y-4 mb-8">
+                      <div>
+                        <label className="block text-[11px] font-bold text-secondary uppercase tracking-wider mb-1.5">Pipeline Stage</label>
+                        <select value={pipelineStage} onChange={(e) => setPipelineStage(e.target.value)} className="w-full bg-surface border border-outline-variant/30 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none">
+                          <option value="Pipeline">Pipeline</option>
+                          <option value="Best Case">Best Case</option>
+                          <option value="Commit">Commit</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-secondary uppercase tracking-wider mb-1.5">Deal Reg Status</label>
+                        <select value={dealRegStatus} onChange={(e) => { setDealRegStatus(e.target.value); setPipelineError(''); }} className="w-full bg-surface border border-outline-variant/30 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none">
+                          <option value="New Logo">New Logo</option>
+                          <option value="Declined Deal Reg">Declined Deal Reg</option>
+                          <option value="Approved Deal Reg">Approved Deal Reg</option>
+                          <option value="OPP">OPP</option>
+                        </select>
+                      </div>
+                      {dealRegStatus === 'OPP' && (
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5 text-brand-red">OPP # *</label>
+                          <input type="text" value={oppNumber} onChange={(e) => { setOppNumber(e.target.value); setPipelineError(''); }} placeholder="Enter OPP Number..." 
+                            className={`w-full bg-surface border ${pipelineError ? 'border-brand-red focus:border-brand-red focus:ring-brand-red/20' : 'border-outline-variant/30 focus:border-primary focus:ring-primary/20'} rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 outline-none transition-all`} 
+                          />
+                          {pipelineError && <p className="text-brand-red text-xs mt-1.5 font-bold">{pipelineError}</p>}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex justify-end gap-3 border-t border-outline-variant/20 pt-5">
+                      <button onClick={() => setShowPipelineModal(false)} className="px-5 py-2.5 rounded-xl font-bold text-secondary bg-surface hover:bg-surface-container-highest transition-colors text-sm">
+                        Cancel
+                      </button>
+                      <button onClick={submitPipelineAndQuote} className="px-6 py-2.5 rounded-xl font-bold text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-md text-sm">
+                        Confirm & Generate
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Toast Notification */}
           {toastMessage && (
             <div className="fixed top-4 right-4 bg-on-surface text-surface px-6 py-3 rounded-xl shadow-2xl z-50 transition-opacity flex items-center gap-3 font-medium">
@@ -1280,7 +1426,6 @@ Fax : (852) 2561 6537`;
                       <button onClick={handleGenerateQuote} disabled={cart.length === 0} className="px-6 py-2.5 bg-primary text-on-primary font-bold rounded-xl shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
                         <span className="material-symbols-outlined text-[18px]">receipt_long</span> Generate Quote
                       </button>
-                      {validationError && <p className="text-brand-red text-xs font-bold bg-error-container px-3 py-1 rounded-md shadow-sm">{validationError}</p>}
                     </div>
                   </div>
 
@@ -1390,7 +1535,7 @@ Fax : (852) 2561 6537`;
                            <div className="flex gap-2 flex-wrap">
                               {modelSummary.map(m => (
                                  <span key={m.model} className="px-2.5 py-1 text-[11px] font-bold bg-primary-fixed text-on-primary-fixed rounded-md shadow-sm border border-primary-fixed-dim/50">
-                                    {m.model}
+                                    {m.qty}x {m.model}
                                  </span>
                               ))}
                            </div>
@@ -1591,13 +1736,13 @@ Fax : (852) 2561 6537`;
                             />
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Reseller Name</label>
+                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Reseller Name <span className="text-brand-red">*</span></label>
                             <input type="text" placeholder="e.g. Ingram Micro" value={resellerName} onChange={(e) => setResellerName(e.target.value)} disabled={isUnofficial}
                               className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
                             />
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">End User Name</label>
+                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">End User Name <span className="text-brand-red">*</span></label>
                             <input type="text" placeholder="e.g. Metropolis Tower" value={endUserName} onChange={(e) => setEndUserName(e.target.value)} disabled={isUnofficial}
                               className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
                             />
