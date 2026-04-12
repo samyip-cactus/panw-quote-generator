@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ingram Micro | Quote Generator</title>
   
-  <!-- 載入 Tailwind CSS 與套件 (無 crossorigin 避免被阻擋) -->
+  <!-- 載入 Tailwind CSS 與套件 -->
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   
   <!-- 載入 Google Fonts 與 Material Symbols -->
@@ -395,45 +395,45 @@ Fax : (852) 2561 6537`;
     }
 
     function QuotationEngine({ products, loading, userRole, onLogout, fb, db, user, isMockMode }) {
+      // ===============================
+      // State Declarations (ALL HOOKS AT TOP)
+      // ===============================
+      
+      // View Modes
       const [viewMode, setViewMode] = useState('generator'); // 'generator' | 'history'
+      const [isPreview, setIsPreview] = useState(false);
+      const [toastMessage, setToastMessage] = useState('');
+      const [validationError, setValidationError] = useState('');
 
+      // Session & Quote Meta
+      const [quoteId, setQuoteId] = useState(() => `QT-${Date.now()}`);
+      const [createdAt, setCreatedAt] = useState(() => new Date().toISOString());
       const [currency, setCurrency] = useState('HKD');
       const [strategy, setStrategy] = useState('Deal Reg, Registered Partner');
       const exchangeRate = currency === 'HKD' ? 7.85 : 1;
-      
+
       const getDefaultValidDate = () => {
         const d = new Date();
         d.setDate(d.getDate() + 30);
         return d.toISOString().split('T')[0];
       };
+      const [validDate, setValidDate] = useState(getDefaultValidDate());
+      const [resellerName, setResellerName] = useState('');
+      const [endUserName, setEndUserName] = useState('');
+      const [isUnofficial, setIsUnofficial] = useState(false);
 
-      // == Session 專屬 ID 管理 ==
-      const [quoteId, setQuoteId] = useState(() => `QT-${Date.now()}`);
-      const [createdAt, setCreatedAt] = useState(() => new Date().toISOString());
-
+      // Cart & Search States
       const [cart, setCart] = useState([]);
       const [searchQuery, setSearchQuery] = useState('');
       const [isSearching, setIsSearching] = useState(false);
-      const [isPreview, setIsPreview] = useState(false);
-      const [resellerName, setResellerName] = useState('');
-      const [endUserName, setEndUserName] = useState('');
-      const [validDate, setValidDate] = useState(getDefaultValidDate());
-      const [isUnofficial, setIsUnofficial] = useState(false);
-      const [toastMessage, setToastMessage] = useState('');
-      const [validationError, setValidationError] = useState('');
-      
-      // == Pipeline Modal States ==
-      const [showPipelineModal, setShowPipelineModal] = useState(false);
-      const [pipelineModalStep, setPipelineModalStep] = useState(1);
-      const [pipelineStage, setPipelineStage] = useState('Pipeline');
-      const [dealRegStatus, setDealRegStatus] = useState('New Logo');
-      const [oppNumber, setOppNumber] = useState('');
-      const [pipelineError, setPipelineError] = useState('');
+      const searchContainerRef = useRef(null);
 
+      // Filters
       const [filterProductType, setFilterProductType] = useState(['Production']);
       const [filterProductClass, setFilterProductClass] = useState(['Product', 'Subscription', 'Support']);
       const [filterIsHA, setFilterIsHA] = useState(false);
 
+      // Global Pricing Settings
       const [isNoIncentive, setIsNoIncentive] = useState(false);
       const [discountType, setDiscountType] = useState('%');
       const [discountInput, setDiscountInput] = useState('');
@@ -442,45 +442,15 @@ Fax : (852) 2561 6537`;
       const [bulkQty, setBulkQty] = useState(1);
       const [bulkMargin, setBulkMargin] = useState(10);
 
-      const searchContainerRef = useRef(null);
+      // Pipeline Modal States
+      const [showPipelineModal, setShowPipelineModal] = useState(false);
+      const [pipelineModalStep, setPipelineModalStep] = useState(1);
+      const [pipelineStage, setPipelineStage] = useState('Pipeline');
+      const [dealRegStatus, setDealRegStatus] = useState('New Logo');
+      const [oppNumber, setOppNumber] = useState('');
+      const [pipelineError, setPipelineError] = useState('');
 
-      const displayUserName = user?.displayName || user?.email?.split('@')[0] || 'User';
-      const userInitial = displayUserName.substring(0, 1).toUpperCase();
-
-      // ===============================
-      // 1. 動態計算 Model 與 產生 Quote Name
-      // ===============================
-      const modelSummary = useMemo(() => {
-        const summary = {};
-        cart.forEach(item => {
-          const model = item.product.Model || item.product.SKU; 
-          const group = (item.product.Product_group || '').toUpperCase();
-          const pClass = (item.product.Product_class || '').toUpperCase();
-          const desc = (item.product.Description || '').toUpperCase();
-
-          // 忽略配件類產品
-          if (group === 'ACCESSORIES' || pClass === 'HW ACCESSORY' || desc.includes('ACCESSORY')) return;
-          if (!model) return;
-
-          // 計算同一 Model 在所有 Line item 中的最小數量
-          if (!summary[model]) {
-            summary[model] = item.qty;
-          } else {
-            summary[model] = Math.min(summary[model], item.qty);
-          }
-        });
-        
-        return Object.entries(summary).map(([model, qty]) => ({ model, qty }));
-      }, [cart]);
-
-      // 自動拼湊不重複且帶最小數量的 Quote Name
-      const generatedQuoteName = useMemo(() => {
-        return modelSummary.map(m => `${m.qty}x ${m.model}`).join(', ');
-      }, [modelSummary]);
-
-      // ===============================
-      // History View States & Logic
-      // ===============================
+      // History States
       const [historyQuotes, setHistoryQuotes] = useState([]);
       const [filteredQuotes, setFilteredQuotes] = useState([]);
       const [historyPage, setHistoryPage] = useState(1);
@@ -494,7 +464,78 @@ Fax : (852) 2561 6537`;
       const [filterDateTo, setFilterDateTo] = useState(() => new Date().toISOString().split('T')[0]);
       const [filterReseller, setFilterReseller] = useState('');
       const [filterEndUser, setFilterEndUser] = useState('');
+
+      // User Info
+      const displayUserName = user?.displayName || user?.email?.split('@')[0] || 'User';
+      const userInitial = displayUserName.substring(0, 1).toUpperCase();
       const [filterPreparedBy, setFilterPreparedBy] = useState([displayUserName]); 
+
+      // ===============================
+      // Memos & Effects (Must be executed every render)
+      // ===============================
+
+      const productTypeOptions = useMemo(() => {
+        const types = new Set(products.map(p => p.Product_type).filter(Boolean));
+        if (!types.has('Production')) types.add('Production');
+        return Array.from(types);
+      }, [products]);
+
+      const productClassOptions = useMemo(() => {
+        const classes = new Set(products.map(p => p.Product_class).filter(Boolean));
+        ['Product', 'Subscription', 'Support'].forEach(c => classes.add(c));
+        return Array.from(classes);
+      }, [products]);
+
+      const searchResults = useMemo(() => {
+        if (!searchQuery.trim()) return [];
+        const preFiltered = products.filter(p => {
+          const isRenewProduct = p.Is_Renew === true || String(p.Is_Renew).toUpperCase() === 'TRUE';
+          if (isRenewProduct) return false;
+
+          const isHAProduct = p.Is_HA === true || String(p.Is_HA).toUpperCase() === 'TRUE';
+          if (filterIsHA && !isHAProduct) return false;
+          if (!filterIsHA && isHAProduct) return false;
+
+          const matchType = filterProductType.length === 0 || filterProductType.includes(p.Product_type);
+          const matchClass = filterProductClass.length === 0 || filterProductClass.includes(p.Product_class);
+          
+          return matchType && matchClass;
+        });
+
+        const terms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+        return preFiltered.filter(p => {
+          const docId = (p.id || p.SKU || '').toLowerCase();
+          const desc = (p.Description || '').toLowerCase();
+          return terms.every(term => docId.includes(term) || desc.includes(term)); // AND Search
+        }).slice(0, 20);
+      }, [searchQuery, products, filterProductType, filterProductClass, filterIsHA]);
+
+      // Calculate Model Summary and Generated Quote Name
+      const modelSummary = useMemo(() => {
+        const summary = {};
+        cart.forEach(item => {
+          const model = item.product.Model || item.product.SKU; 
+          const group = (item.product.Product_group || '').toUpperCase();
+          const pClass = (item.product.Product_class || '').toUpperCase();
+          const desc = (item.product.Description || '').toUpperCase();
+
+          // Ignore accessories
+          if (group === 'ACCESSORIES' || pClass === 'HW ACCESSORY' || desc.includes('ACCESSORY')) return;
+          if (!model) return;
+
+          // Find min qty for the model across lines
+          if (!summary[model]) {
+            summary[model] = item.qty;
+          } else {
+            summary[model] = Math.min(summary[model], item.qty);
+          }
+        });
+        return Object.entries(summary).map(([model, qty]) => ({ model, qty }));
+      }, [cart]);
+
+      const generatedQuoteName = useMemo(() => {
+        return modelSummary.map(m => `${m.qty}x ${m.model}`).join(', ');
+      }, [modelSummary]);
 
       const uniquePreparedBy = useMemo(() => {
         const set = new Set();
@@ -503,6 +544,20 @@ Fax : (852) 2561 6537`;
         });
         return Array.from(set).sort();
       }, [historyQuotes]);
+
+      useEffect(() => {
+        setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null, manualListPrice: null })));
+      }, [strategy]);
+
+      useEffect(() => {
+        const handleClickOutside = (event) => {
+          if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+            setIsSearching(false);
+          }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, []);
 
       const fetchHistory = async () => {
         if (!db) return;
@@ -531,7 +586,11 @@ Fax : (852) 2561 6537`;
         if (historyQuotes.length > 0) {
           handleApplyHistoryFilters();
         }
-      }, [historyQuotes]);
+      }, [historyQuotes, filterDateFrom, filterDateTo, filterReseller, filterEndUser, filterPreparedBy]);
+
+      // ===============================
+      // Helper / Handler Functions
+      // ===============================
 
       const handleApplyHistoryFilters = () => {
         let filtered = historyQuotes.filter(q => {
@@ -545,7 +604,6 @@ Fax : (852) 2561 6537`;
         });
 
         filtered.sort((a, b) => new Date(b.CreatedAt || 0).getTime() < new Date(a.CreatedAt || 0).getTime() ? 1 : -1);
-
         setFilteredQuotes(filtered);
         setHistoryPage(1);
       };
@@ -554,6 +612,117 @@ Fax : (852) 2561 6537`;
         setFilterPreparedBy(prev =>
             prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
         );
+      };
+
+      const handleCurrencyChange = (e) => {
+        const newCurrency = e.target.value;
+        if (newCurrency === currency) return;
+        setCart(prev => prev.map(item => {
+          if (item.manualListPrice !== null) {
+            let convertedPrice = item.manualListPrice;
+            if (currency === 'USD' && newCurrency === 'HKD') {
+              convertedPrice = item.manualListPrice * 7.85;
+            } else if (currency === 'HKD' && newCurrency === 'USD') {
+              convertedPrice = item.manualListPrice / 7.85;
+            }
+            return { ...item, manualListPrice: convertedPrice };
+          }
+          return item;
+        }));
+        setCurrency(newCurrency);
+      };
+
+      const toggleFilter = (setState, val) => {
+        setState(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
+      };
+
+      const addToCart = (product) => {
+        const newItemId = `${product.SKU}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        let initialTerm = product.Term_months !== undefined ? Number(product.Term_months) : 12;
+        const skuUpper = product.SKU.toUpperCase();
+
+        if (initialTerm > 60) initialTerm = 60;
+        if (skuUpper.includes('-3YR') && initialTerm < 36) initialTerm = 36;
+        if (skuUpper.includes('-5YR') && initialTerm < 60) initialTerm = 60;
+
+        setCart(prev => [...prev, {
+          id: newItemId, product, qty: 1, termMonths: initialTerm, manualDiscount: null, manualMargin: null, manualListPrice: null
+        }]);
+        setSearchQuery('');
+        setIsSearching(false);
+      };
+
+      const removeRow = (id) => setCart(prev => prev.filter(item => item.id !== id));
+      
+      const duplicateRow = (id) => {
+        setCart(prev => {
+          const index = prev.findIndex(item => item.id === id);
+          if (index === -1) return prev;
+          const itemToCopy = prev[index];
+          const newItem = {
+            ...itemToCopy,
+            id: `${itemToCopy.product.SKU}_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+          };
+          const newCart = [...prev];
+          newCart.splice(index + 1, 0, newItem);
+          return newCart;
+        });
+      };
+
+      const updateRow = (id, field, value) => {
+        setCart(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+      };
+
+      const handleTermBlur = (id, sku, val) => {
+        let term = parseInt(val, 10);
+        if (isNaN(term)) term = 12;
+        
+        const skuUpper = sku.toUpperCase();
+        if (term > 60) term = 60;
+        if (skuUpper.includes('-3YR') && term < 36) term = 36;
+        if (skuUpper.includes('-5YR') && term < 60) term = 60;
+        updateRow(id, 'termMonths', term);
+      };
+
+      const handleApplyOverallDiscount = () => {
+        const val = parseFloat(discountInput);
+        if (!isNaN(val) && val >= 0) {
+          setAppliedOverallDiscount({ type: discountType, value: val });
+        } else {
+          setAppliedOverallDiscount({ type: '%', value: 0 });
+        }
+      };
+
+      const handleResetOverallDiscount = () => {
+        setDiscountType('%');
+        setDiscountInput('');
+        setAppliedOverallDiscount({ type: '%', value: 0 });
+      };
+
+      const handleBulkUpdateQty = () => {
+        const newQty = parseInt(bulkQty, 10);
+        if (!isNaN(newQty) && newQty > 0) {
+          setCart(prev => prev.map(item => ({ ...item, qty: newQty })));
+          setToastMessage('已統一更新數量！');
+          setTimeout(() => setToastMessage(''), 3000);
+        }
+      };
+
+      const handleBulkUpdateMargin = () => {
+        const newMargin = parseFloat(bulkMargin);
+        if (!isNaN(newMargin) && newMargin >= 0) {
+          setCart(prev => prev.map(item => ({ ...item, manualMargin: newMargin / 100 })));
+          setToastMessage('已統一更新 Margin！');
+          setTimeout(() => setToastMessage(''), 3000);
+        }
+      };
+
+      const handleToggleUnofficial = () => {
+        if (!isUnofficial) {
+          setResellerName('');
+          setEndUserName('');
+        }
+        setIsUnofficial(!isUnofficial);
       };
 
       const loadQuoteToGenerator = (quote, mode) => {
@@ -610,169 +779,8 @@ Fax : (852) 2561 6537`;
          setTimeout(() => setToastMessage(''), 3000);
       };
 
-      const displayedQuotes = filteredQuotes.slice(0, historyPage * 20);
-
-      // ===============================
-      // End History View Logic
-      // ===============================
-
-      useEffect(() => {
-        setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null, manualListPrice: null })));
-      }, [strategy]);
-
-      const handleCurrencyChange = (e) => {
-        const newCurrency = e.target.value;
-        if (newCurrency === currency) return;
-
-        setCart(prev => prev.map(item => {
-          if (item.manualListPrice !== null) {
-            let convertedPrice = item.manualListPrice;
-            if (currency === 'USD' && newCurrency === 'HKD') {
-              convertedPrice = item.manualListPrice * 7.85;
-            } else if (currency === 'HKD' && newCurrency === 'USD') {
-              convertedPrice = item.manualListPrice / 7.85;
-            }
-            return { ...item, manualListPrice: convertedPrice };
-          }
-          return item;
-        }));
-        setCurrency(newCurrency);
-      };
-
-      const toggleFilter = (setState, val) => {
-        setState(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
-      };
-
-      const searchResults = useMemo(() => {
-        if (!searchQuery.trim()) return [];
-        
-        const preFiltered = products.filter(p => {
-          const isRenewProduct = p.Is_Renew === true || String(p.Is_Renew).toUpperCase() === 'TRUE';
-          if (isRenewProduct) return false;
-
-          const isHAProduct = p.Is_HA === true || String(p.Is_HA).toUpperCase() === 'TRUE';
-          if (filterIsHA && !isHAProduct) return false;
-          if (!filterIsHA && isHAProduct) return false;
-
-          const matchType = filterProductType.length === 0 || filterProductType.includes(p.Product_type);
-          const matchClass = filterProductClass.length === 0 || filterProductClass.includes(p.Product_class);
-          
-          return matchType && matchClass;
-        });
-
-        const terms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
-        
-        return preFiltered.filter(p => {
-          const docId = (p.id || p.SKU || '').toLowerCase();
-          const desc = (p.Description || '').toLowerCase();
-          // AND 搜尋邏輯
-          return terms.every(term => docId.includes(term) || desc.includes(term));
-        }).slice(0, 20);
-      }, [searchQuery, products, filterProductType, filterProductClass, filterIsHA]);
-
-      useEffect(() => {
-        const handleClickOutside = (event) => {
-          if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
-            setIsSearching(false);
-          }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-      }, []);
-
-      const addToCart = (product) => {
-        const newItemId = `${product.SKU}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-        let initialTerm = product.Term_months !== undefined ? Number(product.Term_months) : 12;
-        const skuUpper = product.SKU.toUpperCase();
-
-        if (initialTerm > 60) initialTerm = 60;
-        if (skuUpper.includes('-3YR') && initialTerm < 36) initialTerm = 36;
-        if (skuUpper.includes('-5YR') && initialTerm < 60) initialTerm = 60;
-
-        setCart(prev => [...prev, {
-          id: newItemId, product, qty: 1, termMonths: initialTerm, manualDiscount: null, manualMargin: null, manualListPrice: null
-        }]);
-        setSearchQuery('');
-        setIsSearching(false);
-      };
-
-      const removeRow = (id) => setCart(prev => prev.filter(item => item.id !== id));
-      
-      const duplicateRow = (id) => {
-        setCart(prev => {
-          const index = prev.findIndex(item => item.id === id);
-          if (index === -1) return prev;
-          const itemToCopy = prev[index];
-          const newItem = {
-            ...itemToCopy,
-            id: `${itemToCopy.product.SKU}_${Date.now()}_${Math.floor(Math.random() * 1000)}`
-          };
-          const newCart = [...prev];
-          newCart.splice(index + 1, 0, newItem);
-          return newCart;
-        });
-      };
-
-      const updateRow = (id, field, value) => {
-        setCart(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
-      };
-
-      const handleTermBlur = (id, sku, val) => {
-        let term = parseInt(val, 10);
-        if (isNaN(term)) term = 12;
-        
-        const skuUpper = sku.toUpperCase();
-        if (term > 60) term = 60;
-        if (skuUpper.includes('-3YR') && term < 36) term = 36;
-        if (skuUpper.includes('-5YR') && term < 60) term = 60;
-
-        updateRow(id, 'termMonths', term);
-      };
-
-      const handleApplyOverallDiscount = () => {
-        const val = parseFloat(discountInput);
-        if (!isNaN(val) && val >= 0) {
-          setAppliedOverallDiscount({ type: discountType, value: val });
-        } else {
-          setAppliedOverallDiscount({ type: '%', value: 0 });
-        }
-      };
-
-      const handleResetOverallDiscount = () => {
-        setDiscountType('%');
-        setDiscountInput('');
-        setAppliedOverallDiscount({ type: '%', value: 0 });
-      };
-
-      const handleBulkUpdateQty = () => {
-        const newQty = parseInt(bulkQty, 10);
-        if (!isNaN(newQty) && newQty > 0) {
-          setCart(prev => prev.map(item => ({ ...item, qty: newQty })));
-          setToastMessage('已統一更新數量！');
-          setTimeout(() => setToastMessage(''), 3000);
-        }
-      };
-
-      const handleBulkUpdateMargin = () => {
-        const newMargin = parseFloat(bulkMargin);
-        if (!isNaN(newMargin) && newMargin >= 0) {
-          setCart(prev => prev.map(item => ({ ...item, manualMargin: newMargin / 100 })));
-          setToastMessage('已統一更新 Margin！');
-          setTimeout(() => setToastMessage(''), 3000);
-        }
-      };
-
-      const handleToggleUnofficial = () => {
-        if (!isUnofficial) {
-          setResellerName('');
-          setEndUserName('');
-        }
-        setIsUnofficial(!isUnofficial);
-      };
-
       const getCalculatedRow = (item) => {
         const { product, qty, termMonths, manualDiscount, manualMargin, manualListPrice } = item;
-        
         let listPriceUSD = Number(product.Unit_list_price);
         if (isNaN(listPriceUSD)) listPriceUSD = 0;
 
@@ -785,13 +793,9 @@ Fax : (852) 2561 6537`;
         let termMultiplier = 1;
         if (termMonths !== 0) {
           const skuUpper = product.SKU.toUpperCase();
-          if (skuUpper.includes('-3YR')) {
-            termMultiplier = termMonths / 36;
-          } else if (skuUpper.includes('-5YR')) {
-            termMultiplier = termMonths / 60;
-          } else {
-            termMultiplier = termMonths / 12;
-          }
+          if (skuUpper.includes('-3YR')) { termMultiplier = termMonths / 36; }
+          else if (skuUpper.includes('-5YR')) { termMultiplier = termMonths / 60; }
+          else { termMultiplier = termMonths / 12; }
         }
 
         const distyCost = listPrice * (1 - appliedDiscount) * qty * termMultiplier; 
@@ -813,25 +817,18 @@ Fax : (852) 2561 6537`;
 
       const groupedCart = useMemo(() => {
         const groups = { "Product": [], "Support": [], "Subscription": [], "HW Accessory": [], "Miscellaneous": [], "Other": [] };
-
         cart.forEach(item => {
           const pClass = item.product.Product_class;
-          if (groups[pClass]) {
-            groups[pClass].push(item);
-          } else {
-            groups["Other"].push(item);
-          }
+          if (groups[pClass]) { groups[pClass].push(item); }
+          else { groups["Other"].push(item); }
         });
-
         const sortedItems = [];
-        
         ["Product", "Support", "Subscription", "HW Accessory", "Miscellaneous", "Other"].forEach(c => {
           if (groups[c] && groups[c].length > 0) {
             sortedItems.push({ type: 'header', title: c, id: `header-${c}` });
             sortedItems.push(...groups[c].map(item => ({ type: 'item', ...item })));
           }
         });
-        
         return sortedItems;
       }, [cart]);
 
@@ -852,9 +849,6 @@ Fax : (852) 2561 6537`;
       const totalGrossMarginAmount = totalAmount - totalBookingToVendor - totalOtherCost;
       const totalGrossMarginPercent = totalAmount > 0 ? (totalGrossMarginAmount / totalAmount) * 100 : 0;
 
-      // ==========================================
-      // Firebase Saving Logic
-      // ==========================================
       const saveQuotation = async (finalValidDate) => {
         if (cart.length === 0) return;
         const quotationData = {
@@ -882,11 +876,7 @@ Fax : (852) 2561 6537`;
           })
         };
 
-        if (isMockMode || !db || !user) {
-          console.log("=== 準備寫入報價單 (模擬模式) ===", JSON.stringify(quotationData, null, 2));
-          return;
-        }
-
+        if (isMockMode || !db || !user) return;
         try {
           const { collection, doc, setDoc } = fb;
           const quotationsRef = collection(db, 'quote_history');
@@ -930,11 +920,7 @@ Fax : (852) 2561 6537`;
           })
         };
 
-        if (isMockMode || !db || !user) {
-          console.log("=== 準備寫入 Pipeline (模擬模式) ===", JSON.stringify(pipelineData, null, 2));
-          return;
-        }
-
+        if (isMockMode || !db || !user) return;
         try {
           const { collection, doc, setDoc } = fb;
           const opptyRef = collection(db, 'opportunity');
@@ -959,13 +945,11 @@ Fax : (852) 2561 6537`;
             return;
           }
           setValidationError('');
-          // 正式報價 -> 顯示 Pipeline Modal
           setShowPipelineModal(true);
           setPipelineModalStep(1);
           setPipelineError('');
         } else {
           setValidationError('');
-          // 非正式報價 -> 直接跳過儲存與 Pipeline，進入預覽
           setIsPreview(true);
         }
       };
@@ -975,11 +959,9 @@ Fax : (852) 2561 6537`;
           setPipelineError('OPP# is required when Deal Reg Status is OPP.');
           return;
         }
-        
         let finalValidDate = validDate || getDefaultValidDate();
         await savePipeline(finalValidDate);
         await saveQuotation(finalValidDate);
-        
         setShowPipelineModal(false);
         setIsPreview(true);
       };
@@ -987,7 +969,6 @@ Fax : (852) 2561 6537`;
       const skipPipelineAndQuote = async () => {
         let finalValidDate = validDate || getDefaultValidDate();
         await saveQuotation(finalValidDate);
-        
         setShowPipelineModal(false);
         setIsPreview(true);
       };
@@ -1006,7 +987,6 @@ Fax : (852) 2561 6537`;
             alert("Excel 匯出模組尚未載入完成，請確認網路連線或重新整理網頁。");
             return;
           }
-          
           const ExcelJS = window.ExcelJS;
           const workbook = new ExcelJS.Workbook();
           const worksheet = workbook.addWorksheet('Quotation');
@@ -1048,7 +1028,7 @@ Fax : (852) 2561 6537`;
               });
               worksheet.mergeCells(`A${groupRow.number}:F${groupRow.number}`);
             } else {
-              const calc = getCalculatedRow(item);
+              const calc = getCalculatedRow(row);
               const unitPrice = row.qty > 0 ? calc.extendedPrice / row.qty : 0;
               const termVal = row.termMonths == 0 ? '-' : row.termMonths;
 
@@ -1081,7 +1061,6 @@ Fax : (852) 2561 6537`;
           totalRow.font = { bold: true, size: 12 };
           totalRow.getCell(6).numFmt = '#,##0.00';
 
-          // Insert Terms and Conditions
           worksheet.addRow([]);
           worksheet.addRow([]);
           const tcLines = TERMS_AND_CONDITIONS.split('\n');
@@ -1108,9 +1087,11 @@ Fax : (852) 2561 6537`;
         alert(`功能尚未實作 (Placeholder): ${actionName}`);
       };
 
-      // ----------------------------------------------------
+      const displayedQuotes = filteredQuotes.slice(0, historyPage * 20);
+
+      // ====================================================
       // 預覽與列印版面 (Print View)
-      // ----------------------------------------------------
+      // ====================================================
       if (isPreview) {
         return (
           <div className="min-h-screen bg-white text-on-surface font-body p-8 print:p-0">
@@ -1225,9 +1206,9 @@ Fax : (852) 2561 6537`;
         );
       }
 
-      // ----------------------------------------------------
+      // ====================================================
       // 主系統版面 (Bento / Dashboard Style)
-      // ----------------------------------------------------
+      // ====================================================
       return (
         <div className="min-h-screen bg-surface flex font-body relative">
           
