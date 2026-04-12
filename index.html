@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ingram Micro | Quote Generator</title>
   
-  <!-- 載入 Tailwind CSS 與套件 -->
+  <!-- 載入 Tailwind CSS 與套件 (無 crossorigin 避免被阻擋) -->
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   
   <!-- 載入 Google Fonts 與 Material Symbols -->
@@ -523,16 +523,17 @@ Fax : (852) 2561 6537`;
           if (group === 'ACCESSORIES' || pClass === 'HW ACCESSORY' || desc.includes('ACCESSORY')) return;
           if (!model) return;
 
-          // Find min qty for the model across lines
+          // Find max qty for the model across lines
           if (!summary[model]) {
             summary[model] = item.qty;
           } else {
-            summary[model] = Math.min(summary[model], item.qty);
+            summary[model] = Math.max(summary[model], item.qty);
           }
         });
         return Object.entries(summary).map(([model, qty]) => ({ model, qty }));
       }, [cart]);
 
+      // 自動拼湊不重複且帶最大數量的 Quote Name
       const generatedQuoteName = useMemo(() => {
         return modelSummary.map(m => `${m.qty}x ${m.model}`).join(', ');
       }, [modelSummary]);
@@ -678,6 +679,7 @@ Fax : (852) 2561 6537`;
         if (isNaN(term)) term = 12;
         
         const skuUpper = sku.toUpperCase();
+        if (term < 0) term = 0;
         if (term > 60) term = 60;
         if (skuUpper.includes('-3YR') && term < 36) term = 36;
         if (skuUpper.includes('-5YR') && term < 60) term = 60;
@@ -685,12 +687,11 @@ Fax : (852) 2561 6537`;
       };
 
       const handleApplyOverallDiscount = () => {
-        const val = parseFloat(discountInput);
-        if (!isNaN(val) && val >= 0) {
-          setAppliedOverallDiscount({ type: discountType, value: val });
-        } else {
-          setAppliedOverallDiscount({ type: '%', value: 0 });
-        }
+        let val = parseFloat(discountInput);
+        if (isNaN(val) || val < 0) val = 0;
+        if (discountType === '%' && val > 100) val = 100;
+        setAppliedOverallDiscount({ type: discountType, value: val });
+        setDiscountInput(val.toString());
       };
 
       const handleResetOverallDiscount = () => {
@@ -700,21 +701,20 @@ Fax : (852) 2561 6537`;
       };
 
       const handleBulkUpdateQty = () => {
-        const newQty = parseInt(bulkQty, 10);
-        if (!isNaN(newQty) && newQty > 0) {
-          setCart(prev => prev.map(item => ({ ...item, qty: newQty })));
-          setToastMessage('已統一更新數量！');
-          setTimeout(() => setToastMessage(''), 3000);
-        }
+        let newQty = parseInt(bulkQty, 10);
+        if (isNaN(newQty) || newQty < 1) newQty = 1;
+        setCart(prev => prev.map(item => ({ ...item, qty: newQty })));
+        setToastMessage('已統一更新數量！');
+        setTimeout(() => setToastMessage(''), 3000);
       };
 
       const handleBulkUpdateMargin = () => {
-        const newMargin = parseFloat(bulkMargin);
-        if (!isNaN(newMargin) && newMargin >= 0) {
-          setCart(prev => prev.map(item => ({ ...item, manualMargin: newMargin / 100 })));
-          setToastMessage('已統一更新 Margin！');
-          setTimeout(() => setToastMessage(''), 3000);
-        }
+        let newMargin = parseFloat(bulkMargin);
+        if (isNaN(newMargin) || newMargin < 0) newMargin = 0;
+        if (newMargin > 100) newMargin = 100;
+        setCart(prev => prev.map(item => ({ ...item, manualMargin: newMargin / 100 })));
+        setToastMessage('已統一更新 Margin！');
+        setTimeout(() => setToastMessage(''), 3000);
       };
 
       const handleToggleUnofficial = () => {
@@ -781,6 +781,7 @@ Fax : (852) 2561 6537`;
 
       const getCalculatedRow = (item) => {
         const { product, qty, termMonths, manualDiscount, manualMargin, manualListPrice } = item;
+        
         let listPriceUSD = Number(product.Unit_list_price);
         if (isNaN(listPriceUSD)) listPriceUSD = 0;
 
@@ -793,9 +794,13 @@ Fax : (852) 2561 6537`;
         let termMultiplier = 1;
         if (termMonths !== 0) {
           const skuUpper = product.SKU.toUpperCase();
-          if (skuUpper.includes('-3YR')) { termMultiplier = termMonths / 36; }
-          else if (skuUpper.includes('-5YR')) { termMultiplier = termMonths / 60; }
-          else { termMultiplier = termMonths / 12; }
+          if (skuUpper.includes('-3YR')) {
+            termMultiplier = termMonths / 36;
+          } else if (skuUpper.includes('-5YR')) {
+            termMultiplier = termMonths / 60;
+          } else {
+            termMultiplier = termMonths / 12;
+          }
         }
 
         const distyCost = listPrice * (1 - appliedDiscount) * qty * termMultiplier; 
@@ -817,18 +822,25 @@ Fax : (852) 2561 6537`;
 
       const groupedCart = useMemo(() => {
         const groups = { "Product": [], "Support": [], "Subscription": [], "HW Accessory": [], "Miscellaneous": [], "Other": [] };
+
         cart.forEach(item => {
           const pClass = item.product.Product_class;
-          if (groups[pClass]) { groups[pClass].push(item); }
-          else { groups["Other"].push(item); }
+          if (groups[pClass]) {
+            groups[pClass].push(item);
+          } else {
+            groups["Other"].push(item);
+          }
         });
+
         const sortedItems = [];
+        
         ["Product", "Support", "Subscription", "HW Accessory", "Miscellaneous", "Other"].forEach(c => {
           if (groups[c] && groups[c].length > 0) {
             sortedItems.push({ type: 'header', title: c, id: `header-${c}` });
             sortedItems.push(...groups[c].map(item => ({ type: 'item', ...item })));
           }
         });
+        
         return sortedItems;
       }, [cart]);
 
@@ -876,7 +888,11 @@ Fax : (852) 2561 6537`;
           })
         };
 
-        if (isMockMode || !db || !user) return;
+        if (isMockMode || !db || !user) {
+          console.log("=== 準備寫入報價單 (模擬模式) ===", JSON.stringify(quotationData, null, 2));
+          return;
+        }
+
         try {
           const { collection, doc, setDoc } = fb;
           const quotationsRef = collection(db, 'quote_history');
@@ -920,7 +936,11 @@ Fax : (852) 2561 6537`;
           })
         };
 
-        if (isMockMode || !db || !user) return;
+        if (isMockMode || !db || !user) {
+          console.log("=== 準備寫入 Pipeline (模擬模式) ===", JSON.stringify(pipelineData, null, 2));
+          return;
+        }
+
         try {
           const { collection, doc, setDoc } = fb;
           const opptyRef = collection(db, 'opportunity');
@@ -1592,7 +1612,18 @@ Fax : (852) 2561 6537`;
                                           <input type="number" step="0.1" min="0" max="100"
                                             className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
                                             value={Number(((item.manualDiscount !== null ? item.manualDiscount : calc.appliedDiscount) * 100).toFixed(2))}
-                                            onChange={(e) => updateRow(item.id, 'manualDiscount', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
+                                            onChange={(e) => {
+                                              if (e.target.value === '') {
+                                                updateRow(item.id, 'manualDiscount', null);
+                                              } else {
+                                                let val = parseFloat(e.target.value);
+                                                if (!isNaN(val)) {
+                                                  if (val < 0) val = 0;
+                                                  if (val > 100) val = 100;
+                                                  updateRow(item.id, 'manualDiscount', val / 100);
+                                                }
+                                              }
+                                            }}
                                           />
                                         </div>
                                       </td>
@@ -1602,14 +1633,42 @@ Fax : (852) 2561 6537`;
                                       <td className="px-3 py-4 text-center">
                                         <input type="number" min="1" 
                                           className="w-[48px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
-                                          value={item.qty} onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)} />
+                                          value={item.qty} 
+                                          onChange={(e) => {
+                                            if (e.target.value === '') {
+                                              updateRow(item.id, 'qty', '');
+                                            } else {
+                                              let val = parseInt(e.target.value, 10);
+                                              if (!isNaN(val)) {
+                                                if (val < 1) val = 1;
+                                                updateRow(item.id, 'qty', val);
+                                              }
+                                            }
+                                          }}
+                                          onBlur={(e) => {
+                                            if (e.target.value === '' || parseInt(e.target.value, 10) < 1) {
+                                              updateRow(item.id, 'qty', 1);
+                                            }
+                                          }} 
+                                        />
                                       </td>
                                       
                                       <td className="px-3 py-4 text-center">
                                         <input type="number" min="0" max="60" disabled={isTermZero}
                                           className={`w-[44px] border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none ${isTermZero ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest'}`}
                                           value={item.termMonths === '' ? '' : item.termMonths} 
-                                          onChange={(e) => updateRow(item.id, 'termMonths', e.target.value)} 
+                                          onChange={(e) => {
+                                            if (e.target.value === '') {
+                                              updateRow(item.id, 'termMonths', '');
+                                            } else {
+                                              let val = parseInt(e.target.value, 10);
+                                              if (!isNaN(val)) {
+                                                if (val < 0) val = 0;
+                                                if (val > 60) val = 60;
+                                                updateRow(item.id, 'termMonths', val);
+                                              }
+                                            }
+                                          }} 
                                           onBlur={(e) => handleTermBlur(item.id, item.product.SKU, e.target.value)}
                                         />
                                       </td>
@@ -1619,7 +1678,18 @@ Fax : (852) 2561 6537`;
                                           <input type="number" step="0.1" min="0" max="100"
                                             className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
                                             value={Number(((item.manualMargin !== null ? item.manualMargin : calc.appliedMargin) * 100).toFixed(2))}
-                                            onChange={(e) => updateRow(item.id, 'manualMargin', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
+                                            onChange={(e) => {
+                                              if (e.target.value === '') {
+                                                updateRow(item.id, 'manualMargin', null);
+                                              } else {
+                                                let val = parseFloat(e.target.value);
+                                                if (!isNaN(val)) {
+                                                  if (val < 0) val = 0;
+                                                  if (val > 100) val = 100;
+                                                  updateRow(item.id, 'manualMargin', val / 100);
+                                                }
+                                              }
+                                            }}
                                           />
                                         </div>
                                       </td>
