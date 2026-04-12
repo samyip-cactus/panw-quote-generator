@@ -1069,29 +1069,30 @@ Fax : (852) 2561 6537`;
           CreatedAt: new Date().toISOString(),
           PreparedBy: displayUserName,
           Items: cart.map(item => ({
-              SKU: item.product.SKU,
-              Description: item.product.Description,
-              ProductClass: item.product.Product_class,
-              ProductGroup: item.product.Product_group,
-              ProductType: item.product.Product_type,
-              UnitListPrice: item.product.Unit_list_price,
-              DistyMargin: item.product.Disty_margin,
-              DistyMarginVeloci: item.product.Disty_margin_Veloci,
-              DiscountStd: item.product.Discount_Std,
-              DiscountDRRegistered: item.product.Discount_DR_Registered,
-              DiscountDRInnovator: item.product.Discount_DR_Innovator,
-              DiscountDRPlatinum: item.product.Discount_DR_Platinum,
-              DiscountDRDiamond: item.product.Discount_DR_Diamond,
-              DiscountVeloci: item.product.Discount_Veloci,
-              DiscountRenewIncumbent: item.product.Discount_Renew_Incumbent,
-              DiscountRenewBase: item.product.Discount_Renew_base,
-              IncentiveCoupon: item.product.Incentive_coupon,
-              IncentiveGift: item.product.Incentive_gift,
-              Qty: item.qty,
-              Term: item.termMonths,
-              ManualDiscount: item.manualDiscount !== null ? item.manualDiscount : undefined,
-              ManualMargin: item.manualMargin !== null ? item.manualMargin : undefined,
-              ManualListPrice: item.manualListPrice !== null ? item.manualListPrice : undefined
+              SKU: item.product.SKU ?? null,
+              Description: item.product.Description ?? null,
+              ProductClass: item.product.Product_class ?? null,
+              ProductGroup: item.product.Product_group ?? null,
+              ProductType: item.product.Product_type ?? null,
+              UnitListPrice: item.product.Unit_list_price ?? null,
+              DistyMargin: item.product.Disty_margin ?? null,
+              DistyMarginVeloci: item.product.Disty_margin_Veloci ?? null,
+              DiscountStd: item.product.Discount_Std ?? null,
+              DiscountDRRegistered: item.product.Discount_DR_Registered ?? null,
+              DiscountDRInnovator: item.product.Discount_DR_Innovator ?? null,
+              DiscountDRPlatinum: item.product.Discount_DR_Platinum ?? null,
+              DiscountDRDiamond: item.product.Discount_DR_Diamond ?? null,
+              DiscountVeloci: item.product.Discount_Veloci ?? null,
+              DiscountRenewIncumbent: item.product.Discount_Renew_Incumbent ?? null,
+              DiscountRenewBase: item.product.Discount_Renew_base ?? null,
+              IncentiveCoupon: item.product.Incentive_coupon ?? null,
+              IncentiveGift: item.product.Incentive_gift ?? null,
+              Qty: item.qty ?? 1,
+              Term: item.termMonths ?? 0,
+              // 修正 Bug: Firestore 拒絕 undefined，必須改為 null
+              ManualDiscount: item.manualDiscount !== null ? item.manualDiscount : null,
+              ManualMargin: item.manualMargin !== null ? item.manualMargin : null,
+              ManualListPrice: item.manualListPrice !== null ? item.manualListPrice : null
           }))
         };
 
@@ -1104,8 +1105,8 @@ Fax : (852) 2561 6537`;
           setToastMessage('Template Saved Successfully!');
           setTimeout(() => setToastMessage(''), 3000);
         } catch(err) {
-           console.error(err);
-           alert("Error saving template");
+           console.error("Template Save Error:", err);
+           alert("Error saving template: " + err.message);
         }
       };
 
@@ -1149,9 +1150,9 @@ Fax : (852) 2561 6537`;
                product: prod,
                qty: item.Qty,
                termMonths: item.Term,
-               manualDiscount: item.ManualDiscount !== undefined ? item.ManualDiscount : null,
-               manualMargin: item.ManualMargin !== undefined ? item.ManualMargin : null,
-               manualListPrice: item.ManualListPrice !== undefined ? item.ManualListPrice : null
+               manualDiscount: item.ManualDiscount ?? null,
+               manualMargin: item.ManualMargin ?? null,
+               manualListPrice: item.ManualListPrice ?? null
            };
         });
 
