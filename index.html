@@ -253,8 +253,7 @@ Fax : (852) 2561 6537`;
         measurementId: "G-0NR1BTLYCJ"
       };
 
-      // 1. 在解構宣告中加入 doc 與 setDoc
-      const { initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, getFirestore, collection, addDoc, doc, setDoc } = fb || {};
+      const { initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, getFirestore, collection, addDoc, doc, setDoc, getDocs } = fb || {};
 
       const { auth, db, isMockMode } = useMemo(() => {
         if (!fb) return { isMockMode: true, auth: null, db: null };
@@ -396,6 +395,8 @@ Fax : (852) 2561 6537`;
     }
 
     function QuotationEngine({ products, loading, userRole, onLogout, fb, db, user, isMockMode }) {
+      const [viewMode, setViewMode] = useState('generator'); // 'generator' | 'history'
+
       const [currency, setCurrency] = useState('HKD');
       const [strategy, setStrategy] = useState('Deal Reg, Registered Partner');
       const exchangeRate = currency === 'HKD' ? 7.85 : 1;
@@ -406,7 +407,7 @@ Fax : (852) 2561 6537`;
         return d.toISOString().split('T')[0];
       };
 
-      // 2. 引入 Session 專屬 ID 管理 
+      // == Session 專屬 ID 管理 ==
       // 保證同一個作業 Session 內，重複儲存只會覆寫同一筆記錄
       const [quoteId, setQuoteId] = useState(() => `QT-${Date.now()}`);
       const [createdAt, setCreatedAt] = useState(() => new Date().toISOString());
@@ -976,6 +977,7 @@ Fax : (852) 2561 6537`;
           totalRow.font = { bold: true, size: 12 };
           totalRow.getCell(6).numFmt = '#,##0.00';
 
+          // Insert Terms and Conditions
           worksheet.addRow([]);
           worksheet.addRow([]);
           const tcLines = TERMS_AND_CONDITIONS.split('\n');
@@ -1154,6 +1156,11 @@ Fax : (852) 2561 6537`;
               <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Pipeline');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
                 <span className="material-symbols-outlined">account_tree</span>
                 <span className="text-sm font-semibold">Pipeline</span>
+              </a>
+              <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Orders');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
+                <span className="material-symbols-outlined">package_2</span>
+                <span className="text-sm font-semibold">Orders</span>
+              </a>
               <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Analytics');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
                 <span className="material-symbols-outlined">leaderboard</span>
                 <span className="text-sm font-semibold">Analytics</span>
@@ -1167,6 +1174,7 @@ Fax : (852) 2561 6537`;
                   setEndUserName(''); 
                   setIsUnofficial(false); 
                   setValidationError('');
+                  setViewMode('generator');
                   
                   // 4. 重置 Session ID，準備寫入全新的一筆
                   const now = Date.now();
@@ -1468,7 +1476,7 @@ Fax : (852) 2561 6537`;
                       </div>
                     </div>
 
-                    {/* Right Canvas: Summary & Settings */}
+                    {/* Right Canvas: Summary & Settings (col-span-3) */}
                     <div className="col-span-12 xl:col-span-3 space-y-6">
                       
                       {/* Blue Summary Card */}
