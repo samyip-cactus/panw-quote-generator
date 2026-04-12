@@ -404,7 +404,7 @@ Fax : (852) 2561 6537`;
       const [isPreview, setIsPreview] = useState(false);
       const [toastMessage, setToastMessage] = useState('');
       const [validationError, setValidationError] = useState('');
-      const [hideExtendedPrice, setHideExtendedPrice] = useState(false); // 預覽頁隱藏 Ext Price 控制
+      const [hideExtendedPrice, setHideExtendedPrice] = useState(false); 
 
       // Session & Quote Meta
       const [quoteId, setQuoteId] = useState(() => `QT-${Date.now()}`);
@@ -483,6 +483,8 @@ Fax : (852) 2561 6537`;
       const [pipeReseller, setPipeReseller] = useState('');
       const [pipeEndUser, setPipeEndUser] = useState('');
       const [pipeOpptyName, setPipeOpptyName] = useState('');
+      const [pipeDealReg, setPipeDealReg] = useState(''); // New Deal Reg Filter
+      const [pipeStage, setPipeStage] = useState('');     // New Stage Filter
 
       // User Info
       const displayUserName = user?.displayName || user?.email?.split('@')[0] || 'User';
@@ -530,6 +532,7 @@ Fax : (852) 2561 6537`;
         }).slice(0, 20);
       }, [searchQuery, products, filterProductType, filterProductClass, filterIsHA]);
 
+      // 動態擷取購物車中同 Model 的最大 QTY 與 TERM
       const modelSummary = useMemo(() => {
         const summary = {};
         cart.forEach(item => {
@@ -542,16 +545,22 @@ Fax : (852) 2561 6537`;
           if (!model) return;
 
           if (!summary[model]) {
-            summary[model] = item.qty;
+            summary[model] = { qty: item.qty, term: item.termMonths };
           } else {
-            summary[model] = Math.max(summary[model], item.qty);
+            summary[model].qty = Math.max(summary[model].qty, item.qty);
+            summary[model].term = Math.max(summary[model].term, item.termMonths);
           }
         });
-        return Object.entries(summary).map(([model, qty]) => ({ model, qty }));
+        return Object.entries(summary).map(([model, data]) => ({ model, qty: data.qty, term: data.term }));
       }, [cart]);
 
+      // 依照需求：[Model line item最大值]x [Model] [Model line item Term最大值]M
       const generatedQuoteName = useMemo(() => {
-        return modelSummary.map(m => `${m.qty}x ${m.model}`).join(', ');
+        return modelSummary.map(m => `${m.qty}x ${m.model} ${m.term}M`).join(', ');
+      }, [modelSummary]);
+
+      const generatedModelsString = useMemo(() => {
+        return modelSummary.map(m => m.model).join(', ');
       }, [modelSummary]);
 
       const uniquePreparedBy = useMemo(() => {
@@ -625,11 +634,66 @@ Fax : (852) 2561 6537`;
 
       useEffect(() => {
         if (pipelineData.length > 0) handleApplyPipelineFilters();
-      }, [pipelineData, pipeDateFrom, pipeDateTo, pipeReseller, pipeEndUser, pipeOpptyName, pipePreparedBy]);
+      }, [pipelineData, pipeDateFrom, pipeDateTo, pipeReseller, pipeEndUser, pipeOpptyName, pipePreparedBy, pipeDealReg, pipeStage]);
 
       // ===============================
       // Helper / Handler Functions
       // ===============================
+
+      // Quick Date Helper
+      const setQuickDate = (rangeType) => {
+        const today = new Date();
+        const formatDate = (date) => date.toISOString().split('T')[0];
+        let fromDate, toDate;
+        
+        switch(rangeType) {
+          case 'last30':
+            const d30 = new Date(today); d30.setDate(today.getDate() - 30);
+            fromDate = formatDate(d30); toDate = formatDate(today);
+            break;
+          case 'last60':
+            const d60 = new Date(today); d60.setDate(today.getDate() - 60);
+            fromDate = formatDate(d60); toDate = formatDate(today);
+            break;
+          case 'last180':
+            const d180 = new Date(today); d180.setDate(today.getDate() - 180);
+            fromDate = formatDate(d180); toDate = formatDate(today);
+            break;
+          case 'currFY':
+            fromDate = `${today.getFullYear()}-01-01`;
+            toDate = `${today.getFullYear()}-12-31`;
+            break;
+          case 'prevFY':
+            fromDate = `${today.getFullYear() - 1}-01-01`;
+            toDate = `${today.getFullYear() - 1}-12-31`;
+            break;
+          case 'currFQ':
+            {
+              const q = Math.floor(today.getMonth() / 3);
+              const y = today.getFullYear();
+              const sm = String(q * 3 + 1).padStart(2, '0');
+              const em = String(q * 3 + 3).padStart(2, '0');
+              const ed = [31, 30, 31, 31][q];
+              fromDate = `${y}-${sm}-01`;
+              toDate = `${y}-${em}-${ed}`;
+            }
+            break;
+          case 'prevFQ':
+            {
+              let q = Math.floor(today.getMonth() / 3) - 1;
+              let y = today.getFullYear();
+              if (q < 0) { q = 3; y -= 1; }
+              const sm = String(q * 3 + 1).padStart(2, '0');
+              const em = String(q * 3 + 3).padStart(2, '0');
+              const ed = [31, 30, 31, 31][q];
+              fromDate = `${y}-${sm}-01`;
+              toDate = `${y}-${em}-${ed}`;
+            }
+            break;
+        }
+        setPipeDateFrom(fromDate);
+        setPipeDateTo(toDate);
+      };
 
       const handleApplyHistoryFilters = () => {
         let filtered = historyQuotes.filter(q => {
@@ -651,6 +715,10 @@ Fax : (852) 2561 6537`;
           const pDate = p.CreatedAt ? p.CreatedAt.split('T')[0] : '';
           if (pDate && pipeDateFrom && pDate < pipeDateFrom) return false;
           if (pDate && pipeDateTo && pDate > pipeDateTo) return false;
+          
+          if (pipeDealReg && p.DealRegStatus !== pipeDealReg) return false;
+          if (pipeStage && p.PipelineStage !== pipeStage) return false;
+
           if (pipePreparedBy.length > 0 && !pipePreparedBy.includes(p.PreparedBy)) return false;
           if (pipeReseller && !(p.ResellerName || '').toLowerCase().includes(pipeReseller.toLowerCase())) return false;
           if (pipeEndUser && !(p.EndUserName || '').toLowerCase().includes(pipeEndUser.toLowerCase())) return false;
@@ -867,6 +935,19 @@ Fax : (852) 2561 6537`;
         }
       };
 
+      // 為了舊資料無 Models 欄位，提供相容擷取函式
+      const getPipeModelString = (pipe) => {
+        if (pipe.Models) return pipe.Models;
+        const items = pipe.Items || [];
+        const models = new Set();
+        items.forEach(i => {
+           if ((i.ProductClass || '').toUpperCase() === 'HW ACCESSORY') return;
+           if (i.Model) models.add(i.Model);
+           else if (i.SKU) models.add(i.SKU);
+        });
+        return Array.from(models).join(', ') || '-';
+      };
+
       const getCalculatedRow = (item) => {
         const { product, qty, termMonths, manualDiscount, manualMargin, manualListPrice } = item;
         let listPriceUSD = Number(product.Unit_list_price);
@@ -979,11 +1060,11 @@ Fax : (852) 2561 6537`;
       const savePipeline = async (finalValidDate) => {
         const timestamp = quoteId.split('-')[1] || Date.now();
         const opptyId = `OPPTY-${timestamp}`;
-        const opptyName = `${resellerName || 'Unknown'}/${endUserName || 'Unknown'}/${generatedQuoteName}`;
 
         const pipelineDataToSave = {
           OpptyID: opptyId,
-          OpptyName: opptyName,
+          OpptyName: generatedQuoteName,
+          Models: generatedModelsString,
           Date: new Date().toISOString(),
           QuoteValidDate: finalValidDate || validDate,
           CreatedAt: createdAt,
@@ -1193,6 +1274,7 @@ Fax : (852) 2561 6537`;
           worksheet.columns = [
             { header: 'Oppty ID', key: 'id', width: 20 },
             { header: 'Oppty Name', key: 'name', width: 40 },
+            { header: 'Model', key: 'model', width: 30 },
             { header: 'Deal Reg Status', key: 'deal', width: 20 },
             { header: 'Stage', key: 'stage', width: 15 },
             { header: 'Reseller', key: 'reseller', width: 25 },
@@ -1212,6 +1294,7 @@ Fax : (852) 2561 6537`;
              worksheet.addRow({
                 id: p.OpptyID,
                 name: p.OpptyName,
+                model: p.Models || getPipeModelString(p),
                 deal: p.DealRegStatus,
                 stage: p.PipelineStage,
                 reseller: p.ResellerName,
@@ -1219,7 +1302,7 @@ Fax : (852) 2561 6537`;
                 prepared: p.PreparedBy,
                 date: p.CreatedAt ? new Date(p.CreatedAt).toLocaleDateString() : '',
                 total: p.TotalAmount
-             }).getCell(9).numFmt = '#,##0.00';
+             }).getCell(10).numFmt = '#,##0.00';
           });
 
           const buffer = await workbook.xlsx.writeBuffer();
@@ -2147,42 +2230,74 @@ Fax : (852) 2561 6537`;
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-5 gap-6">
-                      <div className="col-span-5 lg:col-span-1 space-y-1.5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-3">
+                      <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Date From</label>
                         <input type="date" value={pipeDateFrom} onChange={e => setPipeDateFrom(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
                       </div>
-                      <div className="col-span-5 lg:col-span-1 space-y-1.5">
+                      <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Date To</label>
                         <input type="date" value={pipeDateTo} onChange={e => setPipeDateTo(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
                       </div>
-                      <div className="col-span-5 lg:col-span-1 space-y-1.5">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Deal Reg Status</label>
+                        <select value={pipeDealReg} onChange={e => setPipeDealReg(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface">
+                          <option value="">All Statuses</option>
+                          <option value="New Logo">New Logo</option>
+                          <option value="Declined Deal Reg">Declined Deal Reg</option>
+                          <option value="Approved Deal Reg">Approved Deal Reg</option>
+                          <option value="OPP">OPP</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Stage</label>
+                        <select value={pipeStage} onChange={e => setPipeStage(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface">
+                          <option value="">All Stages</option>
+                          <option value="Pipeline">Pipeline</option>
+                          <option value="Best Case">Best Case</option>
+                          <option value="Commit">Commit</option>
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-2 mb-6 border-b border-outline-variant/10 pb-4">
+                      <button onClick={() => setQuickDate('last30')} className="px-3 py-1 text-[10px] font-bold bg-surface-container rounded border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-secondary">Last 30 Days</button>
+                      <button onClick={() => setQuickDate('last60')} className="px-3 py-1 text-[10px] font-bold bg-surface-container rounded border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-secondary">Last 60 Days</button>
+                      <button onClick={() => setQuickDate('last180')} className="px-3 py-1 text-[10px] font-bold bg-surface-container rounded border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-secondary">Last 180 Days</button>
+                      <button onClick={() => setQuickDate('currFY')} className="px-3 py-1 text-[10px] font-bold bg-surface-container rounded border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-secondary">Current FY</button>
+                      <button onClick={() => setQuickDate('prevFY')} className="px-3 py-1 text-[10px] font-bold bg-surface-container rounded border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-secondary">Previous FY</button>
+                      <button onClick={() => setQuickDate('currFQ')} className="px-3 py-1 text-[10px] font-bold bg-surface-container rounded border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-secondary">Current FQ</button>
+                      <button onClick={() => setQuickDate('prevFQ')} className="px-3 py-1 text-[10px] font-bold bg-surface-container rounded border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-secondary">Previous FQ</button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Reseller</label>
                         <input type="text" placeholder="Search Reseller..." value={pipeReseller} onChange={e => setPipeReseller(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
                       </div>
-                      <div className="col-span-5 lg:col-span-1 space-y-1.5">
+                      <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">End User</label>
                         <input type="text" placeholder="Search End User..." value={pipeEndUser} onChange={e => setPipeEndUser(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
                       </div>
-                      <div className="col-span-5 lg:col-span-1 space-y-1.5">
+                      <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Oppty Name</label>
                         <input type="text" placeholder="Search (space for AND)..." value={pipeOpptyName} onChange={e => setPipeOpptyName(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
                       </div>
-                      
-                      <div className="col-span-5 border-t border-outline-variant/20 pt-4 mt-2">
-                        <label className="block text-[11px] font-bold text-secondary uppercase tracking-wider mb-3">Created By (Multiple Selection)</label>
-                        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
-                          {uniquePipePreparedBy.map(name => (
-                            <button 
-                              key={name} 
-                              onClick={() => handleTogglePipePreparedBy(name)} 
-                              className={`px-3 py-1.5 text-[12px] font-bold rounded-lg transition-colors border ${pipePreparedBy.includes(name) ? 'bg-primary text-on-primary border-primary shadow-sm' : 'bg-surface text-secondary border-outline-variant/30 hover:bg-surface-container-highest'}`}
-                            >
-                              {name}
-                            </button>
-                          ))}
-                          {uniquePipePreparedBy.length === 0 && <p className="text-xs text-secondary italic">No authors found in history.</p>}
-                        </div>
+                    </div>
+                    
+                    <div className="border-t border-outline-variant/20 pt-4 mt-4">
+                      <label className="block text-[11px] font-bold text-secondary uppercase tracking-wider mb-3">Created By (Multiple Selection)</label>
+                      <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
+                        {uniquePipePreparedBy.map(name => (
+                          <button 
+                            key={name} 
+                            onClick={() => handleTogglePipePreparedBy(name)} 
+                            className={`px-3 py-1.5 text-[12px] font-bold rounded-lg transition-colors border ${pipePreparedBy.includes(name) ? 'bg-primary text-on-primary border-primary shadow-sm' : 'bg-surface text-secondary border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                          >
+                            {name}
+                          </button>
+                        ))}
+                        {uniquePipePreparedBy.length === 0 && <p className="text-xs text-secondary italic">No authors found in history.</p>}
                       </div>
                     </div>
                   </div>
@@ -2201,6 +2316,7 @@ Fax : (852) 2561 6537`;
                             <th className="px-5 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label w-24 text-center">Actions</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Oppty ID</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Oppty Name</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Model</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Deal Reg</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Stage</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Reseller</th>
@@ -2213,7 +2329,7 @@ Fax : (852) 2561 6537`;
                         <tbody className="divide-y divide-outline-variant/10">
                           {displayedPipeline.length === 0 && !isLoadingPipelineView ? (
                             <tr>
-                              <td colSpan="10" className="px-6 py-16 text-center text-secondary">
+                              <td colSpan="11" className="px-6 py-16 text-center text-secondary">
                                 <span className="material-symbols-outlined text-4xl mb-2 text-outline-variant/50">search_off</span>
                                 <p className="font-medium text-sm">No pipeline records found matching your filters.</p>
                               </td>
@@ -2249,6 +2365,10 @@ Fax : (852) 2561 6537`;
                                   ) : (
                                     <div className="text-secondary text-[12px] max-w-[180px] truncate" title={pipe.OpptyName}>{pipe.OpptyName || '-'}</div>
                                   )}
+                                </td>
+                                
+                                <td className="px-4 py-3">
+                                  <div className="text-secondary text-[12px] max-w-[120px] truncate" title={pipe.Models || getPipeModelString(pipe)}>{pipe.Models || getPipeModelString(pipe)}</div>
                                 </td>
                                 
                                 <td className="px-4 py-3">
