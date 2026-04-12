@@ -408,7 +408,6 @@ Fax : (852) 2561 6537`;
       };
 
       // == Session 專屬 ID 管理 ==
-      // 保證同一個作業 Session 內，重複儲存只會覆寫同一筆記錄
       const [quoteId, setQuoteId] = useState(() => `QT-${Date.now()}`);
       const [createdAt, setCreatedAt] = useState(() => new Date().toISOString());
 
@@ -441,6 +440,36 @@ Fax : (852) 2561 6537`;
       const userInitial = displayUserName.substring(0, 1).toUpperCase();
 
       // ===============================
+      // 1. 動態計算 Model 與 產生 Quote Name
+      // ===============================
+      const modelSummary = useMemo(() => {
+        const summary = {};
+        cart.forEach(item => {
+          const model = item.product.Model || item.product.SKU; 
+          const group = (item.product.Product_group || '').toUpperCase();
+          const pClass = (item.product.Product_class || '').toUpperCase();
+          const desc = (item.product.Description || '').toUpperCase();
+
+          // 忽略配件類產品，只留下設備、授權或服務
+          if (group === 'ACCESSORIES' || pClass === 'HW ACCESSORY' || desc.includes('ACCESSORY')) return;
+          if (!model) return;
+
+          if (!summary[model]) {
+            summary[model] = 0;
+          }
+          summary[model] += item.qty;
+        });
+        
+        // 轉為陣列回傳供畫面渲染
+        return Object.entries(summary).map(([model, qty]) => ({ model, qty }));
+      }, [cart]);
+
+      // 自動拼湊不重複且帶數量的 Quote Name
+      const generatedQuoteName = useMemo(() => {
+        return modelSummary.map(m => `${m.qty}x ${m.model}`).join(', ');
+      }, [modelSummary]);
+
+      // ===============================
       // History View States & Logic
       // ===============================
       const [historyQuotes, setHistoryQuotes] = useState([]);
@@ -456,7 +485,7 @@ Fax : (852) 2561 6537`;
       const [filterDateTo, setFilterDateTo] = useState(() => new Date().toISOString().split('T')[0]);
       const [filterReseller, setFilterReseller] = useState('');
       const [filterEndUser, setFilterEndUser] = useState('');
-      const [filterPreparedBy, setFilterPreparedBy] = useState([displayUserName]); // 預設篩選當前使用者
+      const [filterPreparedBy, setFilterPreparedBy] = useState([displayUserName]); 
 
       const uniquePreparedBy = useMemo(() => {
         const set = new Set();
@@ -497,24 +526,15 @@ Fax : (852) 2561 6537`;
 
       const handleApplyHistoryFilters = () => {
         let filtered = historyQuotes.filter(q => {
-          // Date
           const qDate = q.CreatedAt ? q.CreatedAt.split('T')[0] : '';
           if (qDate && filterDateFrom && qDate < filterDateFrom) return false;
           if (qDate && filterDateTo && qDate > filterDateTo) return false;
-
-          // Prepared By
           if (filterPreparedBy.length > 0 && !filterPreparedBy.includes(q.PreparedBy)) return false;
-
-          // Reseller
           if (filterReseller && !(q.ResellerName || '').toLowerCase().includes(filterReseller.toLowerCase())) return false;
-
-          // End User
           if (filterEndUser && !(q.EndUserName || '').toLowerCase().includes(filterEndUser.toLowerCase())) return false;
-
           return true;
         });
 
-        // Sort by CreatedAt desc
         filtered.sort((a, b) => new Date(b.CreatedAt || 0).getTime() < new Date(a.CreatedAt || 0).getTime() ? 1 : -1);
 
         setFilteredQuotes(filtered);
@@ -553,7 +573,6 @@ Fax : (852) 2561 6537`;
             setCreatedAt(new Date(now).toISOString());
          }
 
-         // Rebuild cart items
          const newCart = (quote.Items || []).map(item => {
             let prod = products.find(p => p.SKU === item.SKU);
             if (!prod) {
@@ -839,9 +858,10 @@ Fax : (852) 2561 6537`;
         if (cart.length === 0) return;
         const quotationData = {
           QuoteID: quoteId,
-          Date: new Date().toISOString(), // 代表此版本的最後更新日期
+          QuoteName: generatedQuoteName, // 自動生成的 Quote Name
+          Date: new Date().toISOString(), 
           QuoteValidDate: finalValidDate || validDate,
-          CreatedAt: createdAt, // 保留最初創建時間
+          CreatedAt: createdAt, 
           UpdatedAt: new Date().toISOString(), 
           Currency: currency, AppliedStrategy: strategy,
           IsNoIncentive: isNoIncentive, OverallDiscount: appliedOverallDiscount,
@@ -869,7 +889,6 @@ Fax : (852) 2561 6537`;
         try {
           const { collection, doc, setDoc } = fb;
           const quotationsRef = collection(db, 'quote_history');
-          // 3. 使用 setDoc 與固定的 quoteId 進行覆寫，取代 addDoc 的隨機增生
           const quoteDocRef = doc(quotationsRef, quoteId);
           await setDoc(quoteDocRef, quotationData, { merge: true });
         } catch (error) {
@@ -1188,7 +1207,6 @@ Fax : (852) 2561 6537`;
                   setValidationError('');
                   setViewMode('generator');
                   
-                  // 4. 重置 Session ID，準備寫入全新的一筆
                   const now = Date.now();
                   setQuoteId(`QT-${now}`);
                   setCreatedAt(new Date(now).toISOString());
@@ -1362,6 +1380,22 @@ Fax : (852) 2561 6537`;
                           </div>
                         )}
                       </div>
+
+                      {/* Model Status Bar */}
+                      {modelSummary.length > 0 && (
+                        <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-sm border border-outline-variant/20 flex items-start gap-3 relative z-10">
+                           <span className="text-[10px] font-black text-primary uppercase tracking-widest font-label mt-1 shrink-0 flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[14px]">sell</span> Models:
+                           </span>
+                           <div className="flex gap-2 flex-wrap">
+                              {modelSummary.map(m => (
+                                 <span key={m.model} className="px-2.5 py-1 text-[11px] font-bold bg-primary-fixed text-on-primary-fixed rounded-md shadow-sm border border-primary-fixed-dim/50">
+                                    {m.model}
+                                 </span>
+                              ))}
+                           </div>
+                        </div>
+                      )}
 
                       {/* Line Items Table Box */}
                       <div className="bg-surface-container-lowest rounded-2xl shadow-sm ring-1 ring-outline-variant/20 overflow-hidden relative z-10">
@@ -1698,17 +1732,18 @@ Fax : (852) 2561 6537`;
                           <tr className="bg-surface-container-low border-b border-outline-variant/20">
                             <th className="px-5 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label w-24 text-center">Actions</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Quote ID</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Date (Created)</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Quote Name</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Reseller</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">End User</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Prepared By</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Date (Created)</th>
                             <th className="px-4 py-4 text-[10px] font-black text-primary uppercase tracking-widest font-label text-right">Total Amount</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-outline-variant/10">
                           {displayedQuotes.length === 0 && !isLoadingHistory ? (
                             <tr>
-                              <td colSpan="7" className="px-6 py-16 text-center text-secondary">
+                              <td colSpan="8" className="px-6 py-16 text-center text-secondary">
                                 <span className="material-symbols-outlined text-4xl mb-2 text-outline-variant/50">search_off</span>
                                 <p className="font-medium text-sm">No historical quotes found matching your filters.</p>
                               </td>
@@ -1727,12 +1762,13 @@ Fax : (852) 2561 6537`;
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 font-bold text-on-surface text-[13px]">{quote.QuoteID}</td>
-                                <td className="px-4 py-3 text-secondary text-[12px]">{new Date(quote.CreatedAt).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-secondary text-[12px] max-w-[180px] truncate" title={quote.QuoteName}>{quote.QuoteName || '-'}</td>
                                 <td className="px-4 py-3 text-secondary text-[13px] font-medium">{quote.ResellerName || '-'}</td>
                                 <td className="px-4 py-3 text-secondary text-[13px] font-medium">{quote.EndUserName || '-'}</td>
                                 <td className="px-4 py-3">
                                   <span className="px-2.5 py-1 bg-surface-container text-primary text-[10px] font-bold rounded-md">{quote.PreparedBy || 'Unknown'}</span>
                                 </td>
+                                <td className="px-4 py-3 text-secondary text-[12px]">{new Date(quote.CreatedAt).toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right font-black text-on-surface font-mono text-[14px]">
                                   {new Intl.NumberFormat('en-US', { style: 'currency', currency: quote.Currency || 'HKD' }).format(quote.TotalAmount)}
                                 </td>
