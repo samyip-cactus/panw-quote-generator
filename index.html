@@ -253,7 +253,7 @@ Fax : (852) 2561 6537`;
         measurementId: "G-0NR1BTLYCJ"
       };
 
-      const { initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, getFirestore, collection, addDoc, doc, setDoc, getDocs } = fb || {};
+      const { initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, getFirestore, collection, addDoc, doc, setDoc, getDocs, deleteDoc } = fb || {};
 
       const { auth, db, isMockMode } = useMemo(() => {
         if (!fb) return { isMockMode: true, auth: null, db: null };
@@ -400,7 +400,7 @@ Fax : (852) 2561 6537`;
       // ===============================
       
       // View Modes
-      const [viewMode, setViewMode] = useState('generator'); // 'generator' | 'history' | 'pipeline'
+      const [viewMode, setViewMode] = useState('generator'); // 'generator' | 'history' | 'pipeline' | 'template'
       const [isPreview, setIsPreview] = useState(false);
       const [toastMessage, setToastMessage] = useState('');
       const [validationError, setValidationError] = useState('');
@@ -483,14 +483,24 @@ Fax : (852) 2561 6537`;
       const [pipeReseller, setPipeReseller] = useState('');
       const [pipeEndUser, setPipeEndUser] = useState('');
       const [pipeOpptyName, setPipeOpptyName] = useState('');
-      const [pipeDealReg, setPipeDealReg] = useState(''); // New Deal Reg Filter
-      const [pipeStage, setPipeStage] = useState('');     // New Stage Filter
+      const [pipeDealReg, setPipeDealReg] = useState(''); 
+      const [pipeStage, setPipeStage] = useState('');     
 
       // User Info
       const displayUserName = user?.displayName || user?.email?.split('@')[0] || 'User';
       const userInitial = displayUserName.substring(0, 1).toUpperCase();
       const [filterPreparedBy, setFilterPreparedBy] = useState([displayUserName]); 
       const [pipePreparedBy, setPipePreparedBy] = useState([displayUserName]);
+
+      // Template States
+      const [isFromTemplate, setIsFromTemplate] = useState(false);
+      const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+      const [templateNameInput, setTemplateNameInput] = useState('');
+      const [templatesData, setTemplatesData] = useState([]);
+      const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+      
+      const [selectedTemplate, setSelectedTemplate] = useState(null);
+      const [templateModalType, setTemplateModalType] = useState(null); // 'use' | 'view' | 'delete'
 
       // ===============================
       // Memos & Effects
@@ -532,7 +542,6 @@ Fax : (852) 2561 6537`;
         }).slice(0, 20);
       }, [searchQuery, products, filterProductType, filterProductClass, filterIsHA]);
 
-      // 動態擷取購物車中同 Model 的最大 QTY 與 TERM
       const modelSummary = useMemo(() => {
         const summary = {};
         cart.forEach(item => {
@@ -554,7 +563,6 @@ Fax : (852) 2561 6537`;
         return Object.entries(summary).map(([model, data]) => ({ model, qty: data.qty, term: data.term }));
       }, [cart]);
 
-      // 依照需求：[Model line item最大值]x [Model] [Model line item Term最大值]M
       const generatedQuoteName = useMemo(() => {
         return modelSummary.map(m => `${m.qty}x ${m.model} ${m.term}M`).join(', ');
       }, [modelSummary]);
@@ -623,9 +631,26 @@ Fax : (852) 2561 6537`;
         }
       };
 
+      const fetchTemplates = async () => {
+        if (!db) return;
+        setIsLoadingTemplates(true);
+        try {
+          const { collection, getDocs } = fb;
+          const snapshot = await getDocs(collection(db, 'quote_template'));
+          const data = snapshot.docs.map(doc => doc.data());
+          data.sort((a,b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());
+          setTemplatesData(data);
+        } catch(err) {
+          console.error(err);
+        } finally {
+          setIsLoadingTemplates(false);
+        }
+      };
+
       useEffect(() => {
         if (viewMode === 'history') fetchHistory();
         if (viewMode === 'pipeline') fetchPipeline();
+        if (viewMode === 'template') fetchTemplates();
       }, [viewMode]);
 
       useEffect(() => {
@@ -640,7 +665,6 @@ Fax : (852) 2561 6537`;
       // Helper / Handler Functions
       // ===============================
 
-      // Quick Date Helper
       const setQuickDate = (rangeType) => {
         const today = new Date();
         const formatDate = (date) => date.toISOString().split('T')[0];
@@ -744,6 +768,7 @@ Fax : (852) 2561 6537`;
       };
 
       const handleCurrencyChange = (e) => {
+        setIsFromTemplate(false);
         const newCurrency = e.target.value;
         if (newCurrency === currency) return;
         setCart(prev => prev.map(item => {
@@ -766,6 +791,7 @@ Fax : (852) 2561 6537`;
       };
 
       const addToCart = (product) => {
+        setIsFromTemplate(false);
         const newItemId = `${product.SKU}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         let initialTerm = product.Term_months !== undefined ? Number(product.Term_months) : 12;
         const skuUpper = product.SKU.toUpperCase();
@@ -781,9 +807,13 @@ Fax : (852) 2561 6537`;
         setIsSearching(false);
       };
 
-      const removeRow = (id) => setCart(prev => prev.filter(item => item.id !== id));
+      const removeRow = (id) => {
+        setIsFromTemplate(false);
+        setCart(prev => prev.filter(item => item.id !== id));
+      };
       
       const duplicateRow = (id) => {
+        setIsFromTemplate(false);
         setCart(prev => {
           const index = prev.findIndex(item => item.id === id);
           if (index === -1) return prev;
@@ -799,6 +829,7 @@ Fax : (852) 2561 6537`;
       };
 
       const updateRow = (id, field, value) => {
+        setIsFromTemplate(false);
         setCart(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
       };
 
@@ -828,6 +859,7 @@ Fax : (852) 2561 6537`;
       };
 
       const handleBulkUpdateQty = () => {
+        setIsFromTemplate(false);
         let newQty = parseInt(bulkQty, 10);
         if (isNaN(newQty) || newQty < 1) newQty = 1;
         setCart(prev => prev.map(item => ({ ...item, qty: newQty })));
@@ -901,6 +933,7 @@ Fax : (852) 2561 6537`;
          });
 
          setCart(newCart);
+         setIsFromTemplate(false);
          setViewMode('generator');
          setToastMessage(`已載入報價單 ${quote.QuoteID} (${mode === 'clone' ? 'Clone' : 'Revise'})`);
          setTimeout(() => setToastMessage(''), 3000);
@@ -935,7 +968,6 @@ Fax : (852) 2561 6537`;
         }
       };
 
-      // 為了舊資料無 Models 欄位，提供相容擷取函式
       const getPipeModelString = (pipe) => {
         if (pipe.Models) return pipe.Models;
         const items = pipe.Items || [];
@@ -1017,6 +1049,137 @@ Fax : (852) 2561 6537`;
       const totalOtherCost = cart.reduce((sum, item) => sum + getCalculatedRow(item).incentivePool, 0);
       const totalGrossMarginAmount = totalAmount - totalBookingToVendor - totalOtherCost;
       const totalGrossMarginPercent = totalAmount > 0 ? (totalGrossMarginAmount / totalAmount) * 100 : 0;
+
+      // ===============================
+      // Template Save & Actions
+      // ===============================
+
+      const handleSaveTemplate = async () => {
+        if (!templateNameInput.trim()) return;
+        const templateId = `TEM-${Date.now()}`;
+        const maxTerm = cart.reduce((max, item) => Math.max(max, item.termMonths || 0), 0);
+
+        const templateDataToSave = {
+          TemplateID: templateId,
+          TemplateName: templateNameInput,
+          Models: generatedModelsString,
+          Term: maxTerm,
+          AppliedStrategy: strategy,
+          Currency: currency,
+          CreatedAt: new Date().toISOString(),
+          PreparedBy: displayUserName,
+          Items: cart.map(item => ({
+              SKU: item.product.SKU,
+              Description: item.product.Description,
+              ProductClass: item.product.Product_class,
+              ProductGroup: item.product.Product_group,
+              ProductType: item.product.Product_type,
+              UnitListPrice: item.product.Unit_list_price,
+              DistyMargin: item.product.Disty_margin,
+              DistyMarginVeloci: item.product.Disty_margin_Veloci,
+              DiscountStd: item.product.Discount_Std,
+              DiscountDRRegistered: item.product.Discount_DR_Registered,
+              DiscountDRInnovator: item.product.Discount_DR_Innovator,
+              DiscountDRPlatinum: item.product.Discount_DR_Platinum,
+              DiscountDRDiamond: item.product.Discount_DR_Diamond,
+              DiscountVeloci: item.product.Discount_Veloci,
+              DiscountRenewIncumbent: item.product.Discount_Renew_Incumbent,
+              DiscountRenewBase: item.product.Discount_Renew_base,
+              IncentiveCoupon: item.product.Incentive_coupon,
+              IncentiveGift: item.product.Incentive_gift,
+              Qty: item.qty,
+              Term: item.termMonths,
+              ManualDiscount: item.manualDiscount !== null ? item.manualDiscount : undefined,
+              ManualMargin: item.manualMargin !== null ? item.manualMargin : undefined,
+              ManualListPrice: item.manualListPrice !== null ? item.manualListPrice : undefined
+          }))
+        };
+
+        if (isMockMode || !db || !user) return;
+        try {
+          const { collection, doc, setDoc } = fb;
+          await setDoc(doc(collection(db, 'quote_template'), templateId), templateDataToSave);
+          setShowSaveTemplateModal(false);
+          setTemplateNameInput('');
+          setToastMessage('Template Saved Successfully!');
+          setTimeout(() => setToastMessage(''), 3000);
+        } catch(err) {
+           console.error(err);
+           alert("Error saving template");
+        }
+      };
+
+      const handleUseTemplate = () => {
+        if (!selectedTemplate) return;
+        setCurrency(selectedTemplate.Currency || 'HKD');
+        setStrategy(selectedTemplate.AppliedStrategy || 'Standard');
+        setIsNoIncentive(false);
+        setDiscountType('%');
+        setDiscountInput('');
+        setAppliedOverallDiscount({ type: '%', value: 0 });
+        setBulkQty(1);
+        setBulkMargin(10);
+        
+        const newCart = selectedTemplate.Items.map(item => {
+           let prod = products.find(p => p.SKU === item.SKU);
+           if (!prod) {
+               prod = {
+                  SKU: item.SKU,
+                  Description: item.Description,
+                  Product_class: item.ProductClass,
+                  Product_group: item.ProductGroup,
+                  Product_type: item.ProductType,
+                  Unit_list_price: item.UnitListPrice,
+                  Disty_margin: item.DistyMargin,
+                  Disty_margin_Veloci: item.DistyMarginVeloci,
+                  Discount_Std: item.DiscountStd,
+                  Discount_DR_Registered: item.DiscountDRRegistered,
+                  Discount_DR_Innovator: item.DiscountDRInnovator,
+                  Discount_DR_Platinum: item.DiscountDRPlatinum,
+                  Discount_DR_Diamond: item.DiscountDRDiamond,
+                  Discount_Veloci: item.DiscountVeloci,
+                  Discount_Renew_Incumbent: item.DiscountRenewIncumbent,
+                  Discount_Renew_base: item.DiscountRenewBase,
+                  Incentive_coupon: item.IncentiveCoupon,
+                  Incentive_gift: item.IncentiveGift
+               };
+           }
+           return {
+               id: `${item.SKU}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+               product: prod,
+               qty: item.Qty,
+               termMonths: item.Term,
+               manualDiscount: item.ManualDiscount !== undefined ? item.ManualDiscount : null,
+               manualMargin: item.ManualMargin !== undefined ? item.ManualMargin : null,
+               manualListPrice: item.ManualListPrice !== undefined ? item.ManualListPrice : null
+           };
+        });
+
+        setCart(newCart);
+        setIsFromTemplate(true);
+        setTemplateModalType(null);
+        setSelectedTemplate(null);
+        setViewMode('generator');
+        setToastMessage('Template loaded.');
+        setTimeout(() => setToastMessage(''), 3000);
+      };
+
+      const handleDeleteTemplate = async () => {
+        if (!selectedTemplate || !db) return;
+        try {
+           const { doc, deleteDoc } = fb;
+           await deleteDoc(doc(db, 'quote_template', selectedTemplate.TemplateID));
+           setTemplatesData(prev => prev.filter(t => t.TemplateID !== selectedTemplate.TemplateID));
+           setTemplateModalType(null);
+           setSelectedTemplate(null);
+           setToastMessage('Template deleted.');
+           setTimeout(() => setToastMessage(''), 3000);
+        } catch(err) {
+           console.error(err);
+           alert("Error deleting template");
+        }
+      };
+
 
       const saveQuotation = async (finalValidDate) => {
         if (cart.length === 0) return;
@@ -1272,7 +1435,6 @@ Fax : (852) 2561 6537`;
           const worksheet = workbook.addWorksheet('Pipeline');
 
           worksheet.columns = [
-            { header: 'Oppty ID', key: 'id', width: 20 },
             { header: 'Oppty Name', key: 'name', width: 40 },
             { header: 'Model', key: 'model', width: 30 },
             { header: 'Deal Reg Status', key: 'deal', width: 20 },
@@ -1292,7 +1454,6 @@ Fax : (852) 2561 6537`;
 
           filteredPipeline.forEach(p => {
              worksheet.addRow({
-                id: p.OpptyID,
                 name: p.OpptyName,
                 model: p.Models || getPipeModelString(p),
                 deal: p.DealRegStatus,
@@ -1302,7 +1463,7 @@ Fax : (852) 2561 6537`;
                 prepared: p.PreparedBy,
                 date: p.CreatedAt ? new Date(p.CreatedAt).toLocaleDateString() : '',
                 total: p.TotalAmount
-             }).getCell(10).numFmt = '#,##0.00';
+             }).getCell(9).numFmt = '#,##0.00'; // 9th col is Total Amount now
           });
 
           const buffer = await workbook.xlsx.writeBuffer();
@@ -1450,6 +1611,120 @@ Fax : (852) 2561 6537`;
       return (
         <div className="min-h-screen bg-surface flex font-body relative">
           
+          {/* Template 儲存彈窗 */}
+          {showSaveTemplateModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40 backdrop-blur-sm p-4 transition-all">
+              <div className="bg-surface-container-lowest rounded-2xl shadow-2xl max-w-sm w-full border border-outline-variant/30 overflow-hidden">
+                <div className="p-7">
+                  <div className="flex items-center gap-3 text-indigo-600 mb-6">
+                    <span className="material-symbols-outlined text-3xl">save</span>
+                    <h3 className="text-xl font-headline font-black tracking-tight">Save As Template</h3>
+                  </div>
+                  <div className="space-y-4 mb-8">
+                    <div>
+                      <label className="block text-[11px] font-bold text-secondary uppercase tracking-wider mb-1.5">Template Name <span className="text-brand-red">*</span></label>
+                      <input type="text" value={templateNameInput} onChange={e => setTemplateNameInput(e.target.value)} placeholder="Enter a distinctive name..." 
+                        className={`w-full bg-surface border border-outline-variant/30 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 outline-none transition-all`} 
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-3 border-t border-outline-variant/20 pt-5">
+                    <button onClick={() => setShowSaveTemplateModal(false)} className="px-5 py-2.5 rounded-xl font-bold text-secondary bg-surface hover:bg-surface-container-highest transition-colors text-sm">
+                      Cancel
+                    </button>
+                    <button onClick={handleSaveTemplate} disabled={!templateNameInput.trim()} className="px-6 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-md text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                      Save Template
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Template 操作確認 / 檢視彈窗 */}
+          {templateModalType && selectedTemplate && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40 backdrop-blur-sm p-4 transition-all">
+              <div className={`bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant/30 overflow-hidden ${templateModalType === 'view' ? 'max-w-2xl w-full' : 'max-w-md w-full'}`}>
+                {templateModalType === 'use' && (
+                  <div className="p-7">
+                    <div className="flex items-center gap-3 text-primary mb-3">
+                      <span className="material-symbols-outlined text-3xl">description</span>
+                      <h3 className="text-xl font-headline font-black tracking-tight">Use Template?</h3>
+                    </div>
+                    <p className="text-[13px] text-secondary font-label mb-8 leading-relaxed">
+                      Applying this template will <strong>replace</strong> all items currently in your Quote Generator and reset your pricing controls. Do you want to proceed?
+                    </p>
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => { setTemplateModalType(null); setSelectedTemplate(null); }} className="px-5 py-2.5 rounded-xl font-bold text-secondary bg-surface hover:bg-surface-container-highest transition-colors text-sm">
+                        Cancel
+                      </button>
+                      <button onClick={handleUseTemplate} className="px-6 py-2.5 rounded-xl font-bold text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-md text-sm">
+                        Yes, Apply
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {templateModalType === 'delete' && (
+                  <div className="p-7">
+                    <div className="flex items-center gap-3 text-brand-red mb-3">
+                      <span className="material-symbols-outlined text-3xl">warning</span>
+                      <h3 className="text-xl font-headline font-black tracking-tight">Delete Template?</h3>
+                    </div>
+                    <p className="text-[13px] text-secondary font-label mb-8 leading-relaxed">
+                      Are you sure you want to permanently delete the template <strong>{selectedTemplate.TemplateName}</strong>? This cannot be undone.
+                    </p>
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => { setTemplateModalType(null); setSelectedTemplate(null); }} className="px-5 py-2.5 rounded-xl font-bold text-secondary bg-surface hover:bg-surface-container-highest transition-colors text-sm">
+                        Cancel
+                      </button>
+                      <button onClick={handleDeleteTemplate} className="px-6 py-2.5 rounded-xl font-bold text-white bg-brand-red hover:bg-red-700 transition-colors shadow-md text-sm">
+                        Yes, Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {templateModalType === 'view' && (
+                  <div className="p-7 flex flex-col max-h-[85vh]">
+                    <div className="flex items-center gap-3 text-primary mb-6">
+                      <span className="material-symbols-outlined text-2xl">visibility</span>
+                      <h3 className="text-lg font-headline font-black tracking-tight">Template Items: {selectedTemplate.TemplateName}</h3>
+                    </div>
+                    <div className="overflow-y-auto flex-1 custom-scrollbar border border-outline-variant/30 rounded-xl">
+                      <table className="w-full text-left whitespace-nowrap text-sm">
+                        <thead className="bg-surface-container-low border-b border-outline-variant/30 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 font-bold text-secondary">SKU</th>
+                            <th className="px-4 py-3 font-bold text-secondary">Description</th>
+                            <th className="px-4 py-3 font-bold text-secondary text-center">Qty</th>
+                            <th className="px-4 py-3 font-bold text-secondary text-center">Term</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-outline-variant/10">
+                          {selectedTemplate.Items && selectedTemplate.Items.map((item, i) => (
+                            <tr key={i} className="hover:bg-surface-container-highest/20 transition-colors">
+                              <td className="px-4 py-3 font-semibold text-on-surface">{item.SKU}</td>
+                              <td className="px-4 py-3 text-secondary truncate max-w-xs">{item.Description}</td>
+                              <td className="px-4 py-3 text-center">{item.Qty}</td>
+                              <td className="px-4 py-3 text-center">{item.Term}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex justify-end pt-5 mt-4">
+                      <button onClick={() => { setTemplateModalType(null); setSelectedTemplate(null); }} className="px-6 py-2.5 rounded-xl font-bold text-secondary bg-surface hover:bg-surface-container-highest transition-colors text-sm border border-outline-variant/30">
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Pipeline 彈窗 */}
           {showPipelineModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-on-surface/40 backdrop-blur-sm p-4 transition-all">
@@ -1549,6 +1824,10 @@ Fax : (852) 2561 6537`;
                 <span className="material-symbols-outlined">history</span>
                 <span className="text-sm">Historic Quotes</span>
               </a>
+              <a href="#" onClick={(e) => {e.preventDefault(); setViewMode('template');}} className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-200 ${viewMode === 'template' ? 'text-primary font-bold border-r-4 border-primary bg-surface-container' : 'text-secondary hover:text-primary hover:bg-surface-container-low rounded-lg'}`}>
+                <span className="material-symbols-outlined">description</span>
+                <span className="text-sm">Templates</span>
+              </a>
               <a href="#" onClick={(e) => {e.preventDefault(); setViewMode('pipeline');}} className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-200 ${viewMode === 'pipeline' ? 'text-primary font-bold border-r-4 border-primary bg-surface-container' : 'text-secondary hover:text-primary hover:bg-surface-container-low rounded-lg'}`}>
                 <span className="material-symbols-outlined">account_tree</span>
                 <span className="text-sm font-semibold">Pipeline</span>
@@ -1566,6 +1845,7 @@ Fax : (852) 2561 6537`;
                   setEndUserName(''); 
                   setIsUnofficial(false); 
                   setValidationError('');
+                  setIsFromTemplate(false);
                   setViewMode('generator');
                   
                   const now = Date.now();
@@ -1599,7 +1879,7 @@ Fax : (852) 2561 6537`;
                   </div>
                   <div className="flex items-center gap-1.5 px-3">
                     <span className="text-[10px] font-bold text-secondary uppercase tracking-wider">Strategy</span>
-                    <select value={strategy} onChange={(e) => setStrategy(e.target.value)} className="bg-transparent font-bold text-sm text-primary focus:ring-0 border-0 py-1 pl-1 pr-6 cursor-pointer max-w-[220px] truncate">
+                    <select value={strategy} onChange={(e) => { setStrategy(e.target.value); setIsFromTemplate(false); }} className="bg-transparent font-bold text-sm text-primary focus:ring-0 border-0 py-1 pl-1 pr-6 cursor-pointer max-w-[220px] truncate">
                       {Object.keys(STRATEGIES).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
@@ -1629,7 +1909,7 @@ Fax : (852) 2561 6537`;
                     <div>
                       <h2 className="text-3xl font-black text-primary font-headline tracking-tight">Interactive Quote Generator</h2>
                       <div className="flex items-center gap-3 mt-3">
-                        <button onClick={() => handlePlaceholderAction('Use Quote Template')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
+                        <button onClick={() => setViewMode('template')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
                           <span className="material-symbols-outlined text-[16px] text-primary">description</span> Use Quote Template
                         </button>
                         <button onClick={() => setViewMode('history')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
@@ -1638,10 +1918,15 @@ Fax : (852) 2561 6537`;
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <button onClick={handleGenerateQuote} disabled={cart.length === 0} className="px-6 py-2.5 bg-primary text-on-primary font-bold rounded-xl shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
-                        <span className="material-symbols-outlined text-[18px]">receipt_long</span> Generate Quote
-                      </button>
-                      {validationError && <p className="text-brand-red text-xs font-bold bg-error-container px-3 py-1 rounded-md shadow-sm">{validationError}</p>}
+                      <div className="flex items-center gap-3">
+                         <button onClick={() => setShowSaveTemplateModal(true)} disabled={cart.length === 0 || isFromTemplate} className="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                           <span className="material-symbols-outlined text-[18px]">save</span> Save As Template
+                         </button>
+                         <button onClick={handleGenerateQuote} disabled={cart.length === 0} className="px-6 py-2.5 bg-primary text-on-primary font-bold rounded-xl shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+                           <span className="material-symbols-outlined text-[18px]">receipt_long</span> Generate Quote
+                         </button>
+                      </div>
+                      {validationError && <p className="text-brand-red text-xs font-bold bg-error-container px-3 py-1 rounded-md shadow-sm mt-1">{validationError}</p>}
                     </div>
                   </div>
 
@@ -2314,7 +2599,6 @@ Fax : (852) 2561 6537`;
                         <thead>
                           <tr className="bg-surface-container-low border-b border-outline-variant/20">
                             <th className="px-5 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label w-24 text-center">Actions</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Oppty ID</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Oppty Name</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Model</th>
                             <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Deal Reg</th>
@@ -2329,7 +2613,7 @@ Fax : (852) 2561 6537`;
                         <tbody className="divide-y divide-outline-variant/10">
                           {displayedPipeline.length === 0 && !isLoadingPipelineView ? (
                             <tr>
-                              <td colSpan="11" className="px-6 py-16 text-center text-secondary">
+                              <td colSpan="10" className="px-6 py-16 text-center text-secondary">
                                 <span className="material-symbols-outlined text-4xl mb-2 text-outline-variant/50">search_off</span>
                                 <p className="font-medium text-sm">No pipeline records found matching your filters.</p>
                               </td>
@@ -2357,7 +2641,6 @@ Fax : (852) 2561 6537`;
                                     </div>
                                   )}
                                 </td>
-                                <td className="px-4 py-3 font-bold text-on-surface text-[13px]">{pipe.OpptyID}</td>
                                 
                                 <td className="px-4 py-3">
                                   {isEditing ? (
@@ -2440,6 +2723,82 @@ Fax : (852) 2561 6537`;
                         </button>
                       </div>
                     )}
+                  </div>
+                </div>
+              ) : viewMode === 'template' ? (
+                /* ========================================================
+                   Template View 
+                   ======================================================== */
+                <div className="space-y-8 fade-in">
+                  <div className="flex justify-between items-end mb-8 border-b border-outline-variant/20 pb-6">
+                    <div>
+                      <h2 className="text-3xl font-black text-primary font-headline tracking-tight">Quote Templates</h2>
+                      <p className="text-sm text-secondary mt-1">Manage and quickly apply pre-configured quotation templates.</p>
+                    </div>
+                    <button onClick={() => setViewMode('generator')} className="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-sm font-bold rounded-xl border border-outline-variant/30 transition-colors shadow-sm">
+                      <span className="material-symbols-outlined text-[18px]">arrow_back</span> Back to Generator
+                    </button>
+                  </div>
+
+                  <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/20 overflow-hidden relative">
+                    {isLoadingTemplates && (
+                      <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-10 flex items-center justify-center">
+                        <span className="material-symbols-outlined animate-spin text-primary text-4xl">autorenew</span>
+                      </div>
+                    )}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left whitespace-nowrap">
+                        <thead>
+                          <tr className="bg-surface-container-low border-b border-outline-variant/20">
+                            <th className="px-5 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label w-32 text-center">Actions</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Template Name</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Model</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label text-center">Max Term (M)</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Strategy</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Currency</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Created By</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Created At</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-outline-variant/10">
+                          {templatesData.length === 0 && !isLoadingTemplates ? (
+                            <tr>
+                              <td colSpan="8" className="px-6 py-16 text-center text-secondary">
+                                <span className="material-symbols-outlined text-4xl mb-2 text-outline-variant/50">layers_clear</span>
+                                <p className="font-medium text-sm">No templates saved yet.</p>
+                              </td>
+                            </tr>
+                          ) : (
+                            templatesData.map(tmpl => (
+                              <tr key={tmpl.TemplateID} className="hover:bg-surface-container-highest/30 transition-colors group">
+                                <td className="px-5 py-3 text-center align-middle">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button onClick={() => { setSelectedTemplate(tmpl); setTemplateModalType('use'); }} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center justify-center shadow-sm" title="Use Template">
+                                      <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                                    </button>
+                                    <button onClick={() => { setSelectedTemplate(tmpl); setTemplateModalType('view'); }} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-primary hover:bg-primary hover:text-on-primary transition-colors flex items-center justify-center shadow-sm" title="View Items">
+                                      <span className="material-symbols-outlined text-[16px]">visibility</span>
+                                    </button>
+                                    <button onClick={() => { setSelectedTemplate(tmpl); setTemplateModalType('delete'); }} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-secondary hover:text-brand-red transition-colors flex items-center justify-center shadow-sm" title="Delete Template">
+                                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 font-bold text-on-surface text-[13px]">{tmpl.TemplateName}</td>
+                                <td className="px-4 py-3 text-secondary text-[12px] max-w-[180px] truncate" title={tmpl.Models}>{tmpl.Models || '-'}</td>
+                                <td className="px-4 py-3 text-secondary text-[13px] font-medium text-center">{tmpl.Term}</td>
+                                <td className="px-4 py-3 text-secondary text-[12px] truncate max-w-[150px]">{tmpl.AppliedStrategy}</td>
+                                <td className="px-4 py-3 font-bold text-secondary text-[12px]">{tmpl.Currency}</td>
+                                <td className="px-4 py-3">
+                                  <span className="px-2.5 py-1 bg-surface-container text-primary text-[10px] font-bold rounded-md">{tmpl.PreparedBy || 'Unknown'}</span>
+                                </td>
+                                <td className="px-4 py-3 text-secondary text-[12px]">{new Date(tmpl.CreatedAt).toLocaleDateString()}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               ) : null}
