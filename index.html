@@ -611,6 +611,18 @@ Fax : (852) 2561 6537`;
         setCurrency(newCurrency);
       };
 
+      const productTypeOptions = useMemo(() => {
+        const types = new Set(products.map(p => p.Product_type).filter(Boolean));
+        if (!types.has('Production')) types.add('Production');
+        return Array.from(types);
+      }, [products]);
+
+      const productClassOptions = useMemo(() => {
+        const classes = new Set(products.map(p => p.Product_class).filter(Boolean));
+        ['Product', 'Subscription', 'Support'].forEach(c => classes.add(c));
+        return Array.from(classes);
+      }, [products]);
+
       const toggleFilter = (setState, val) => {
         setState(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
       };
