@@ -253,6 +253,7 @@ Fax : (852) 2561 6537`;
         measurementId: "G-0NR1BTLYCJ"
       };
 
+      // 1. 在解構宣告中加入 doc 與 setDoc
       const { initializeApp, getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, getFirestore, collection, addDoc, doc, setDoc } = fb || {};
 
       const { auth, db, isMockMode } = useMemo(() => {
@@ -405,8 +406,8 @@ Fax : (852) 2561 6537`;
         return d.toISOString().split('T')[0];
       };
 
-      // == Session 專屬 ID 管理 ==
-      // 保證同一個作業 Session 內，重複儲存不會產生多筆記錄，而是覆寫同一筆記錄
+      // 2. 引入 Session 專屬 ID 管理 
+      // 保證同一個作業 Session 內，重複儲存只會覆寫同一筆記錄
       const [quoteId, setQuoteId] = useState(() => `QT-${Date.now()}`);
       const [createdAt, setCreatedAt] = useState(() => new Date().toISOString());
 
@@ -438,6 +439,154 @@ Fax : (852) 2561 6537`;
       const displayUserName = user?.displayName || user?.email?.split('@')[0] || 'User';
       const userInitial = displayUserName.substring(0, 1).toUpperCase();
 
+      // ===============================
+      // History View States & Logic
+      // ===============================
+      const [historyQuotes, setHistoryQuotes] = useState([]);
+      const [filteredQuotes, setFilteredQuotes] = useState([]);
+      const [historyPage, setHistoryPage] = useState(1);
+      const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+      const [filterDateFrom, setFilterDateFrom] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        return d.toISOString().split('T')[0];
+      });
+      const [filterDateTo, setFilterDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+      const [filterReseller, setFilterReseller] = useState('');
+      const [filterEndUser, setFilterEndUser] = useState('');
+      const [filterPreparedBy, setFilterPreparedBy] = useState([displayUserName]); // 預設篩選當前使用者
+
+      const uniquePreparedBy = useMemo(() => {
+        const set = new Set();
+        historyQuotes.forEach(q => {
+            if (q.PreparedBy) set.add(q.PreparedBy);
+        });
+        return Array.from(set).sort();
+      }, [historyQuotes]);
+
+      const fetchHistory = async () => {
+        if (!db) return;
+        setIsLoadingHistory(true);
+        try {
+          const { collection, getDocs } = fb;
+          const snapshot = await getDocs(collection(db, 'quote_history'));
+          const quotes = snapshot.docs.map(doc => doc.data());
+          setHistoryQuotes(quotes);
+        } catch (error) {
+          console.error("無法載入歷史報價:", error);
+          setToastMessage('無法載入歷史記錄。');
+          setTimeout(() => setToastMessage(''), 3000);
+        } finally {
+          setIsLoadingHistory(false);
+        }
+      };
+
+      useEffect(() => {
+        if (viewMode === 'history') {
+          fetchHistory();
+        }
+      }, [viewMode]);
+
+      useEffect(() => {
+        if (historyQuotes.length > 0) {
+          handleApplyHistoryFilters();
+        }
+      }, [historyQuotes]);
+
+      const handleApplyHistoryFilters = () => {
+        let filtered = historyQuotes.filter(q => {
+          // Date
+          const qDate = q.CreatedAt ? q.CreatedAt.split('T')[0] : '';
+          if (qDate && filterDateFrom && qDate < filterDateFrom) return false;
+          if (qDate && filterDateTo && qDate > filterDateTo) return false;
+
+          // Prepared By
+          if (filterPreparedBy.length > 0 && !filterPreparedBy.includes(q.PreparedBy)) return false;
+
+          // Reseller
+          if (filterReseller && !(q.ResellerName || '').toLowerCase().includes(filterReseller.toLowerCase())) return false;
+
+          // End User
+          if (filterEndUser && !(q.EndUserName || '').toLowerCase().includes(filterEndUser.toLowerCase())) return false;
+
+          return true;
+        });
+
+        // Sort by CreatedAt desc
+        filtered.sort((a, b) => new Date(b.CreatedAt || 0).getTime() < new Date(a.CreatedAt || 0).getTime() ? 1 : -1);
+
+        setFilteredQuotes(filtered);
+        setHistoryPage(1);
+      };
+
+      const handleTogglePreparedBy = (name) => {
+        setFilterPreparedBy(prev =>
+            prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
+        );
+      };
+
+      const loadQuoteToGenerator = (quote, mode) => {
+         setCurrency(quote.Currency || 'HKD');
+         setStrategy(quote.AppliedStrategy || 'Standard');
+         setIsNoIncentive(quote.IsNoIncentive || false);
+         if (quote.OverallDiscount) {
+            setDiscountType(quote.OverallDiscount.type || '%');
+            setDiscountInput(quote.OverallDiscount.value ? quote.OverallDiscount.value.toString() : '');
+            setAppliedOverallDiscount(quote.OverallDiscount);
+         } else {
+            handleResetOverallDiscount();
+         }
+
+         setResellerName(quote.ResellerName || '');
+         setEndUserName(quote.EndUserName || '');
+         setValidDate(quote.QuoteValidDate || getDefaultValidDate());
+         setIsUnofficial(quote.IsUnofficial || false);
+
+         if (mode === 'revise') {
+            setQuoteId(quote.QuoteID);
+            setCreatedAt(quote.CreatedAt);
+         } else { 
+            const now = Date.now();
+            setQuoteId(`QT-${now}`);
+            setCreatedAt(new Date(now).toISOString());
+         }
+
+         // Rebuild cart items
+         const newCart = (quote.Items || []).map(item => {
+            let prod = products.find(p => p.SKU === item.SKU);
+            if (!prod) {
+               prod = {
+                  SKU: item.SKU,
+                  Description: item.Description,
+                  Product_class: item.ProductClass || 'Other',
+                  Product_type: 'Unknown',
+                  Unit_list_price: item.ListPrice / exchangeRate, 
+               };
+            }
+            return {
+               id: `${item.SKU}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+               product: prod,
+               qty: item.Qty || 1,
+               termMonths: item.Term || 0,
+               manualDiscount: item.Discount,
+               manualMargin: item.Margin,
+               manualListPrice: item.ListPrice
+            };
+         });
+
+         setCart(newCart);
+         setViewMode('generator');
+         setToastMessage(`已載入報價單 ${quote.QuoteID} (${mode === 'clone' ? 'Clone' : 'Revise'})`);
+         setTimeout(() => setToastMessage(''), 3000);
+      };
+
+      const displayedQuotes = filteredQuotes.slice(0, historyPage * 20);
+
+      // ===============================
+      // End History View Logic
+      // ===============================
+
       useEffect(() => {
         setCart(prev => prev.map(item => ({ ...item, manualDiscount: null, manualMargin: null, manualListPrice: null })));
       }, [strategy]);
@@ -460,18 +609,6 @@ Fax : (852) 2561 6537`;
         }));
         setCurrency(newCurrency);
       };
-
-      const productTypeOptions = useMemo(() => {
-        const types = new Set(products.map(p => p.Product_type).filter(Boolean));
-        if (!types.has('Production')) types.add('Production');
-        return Array.from(types);
-      }, [products]);
-
-      const productClassOptions = useMemo(() => {
-        const classes = new Set(products.map(p => p.Product_class).filter(Boolean));
-        ['Product', 'Subscription', 'Support'].forEach(c => classes.add(c));
-        return Array.from(classes);
-      }, [products]);
 
       const toggleFilter = (setState, val) => {
         setState(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
@@ -689,10 +826,10 @@ Fax : (852) 2561 6537`;
         if (cart.length === 0) return;
         const quotationData = {
           QuoteID: quoteId,
-          Date: new Date().toISOString(),
+          Date: new Date().toISOString(), // 代表此版本的最後更新日期
           QuoteValidDate: finalValidDate || validDate,
-          CreatedAt: createdAt,
-          UpdatedAt: new Date().toISOString(), // 紀錄最後更新時間
+          CreatedAt: createdAt, // 保留最初創建時間
+          UpdatedAt: new Date().toISOString(), 
           Currency: currency, AppliedStrategy: strategy,
           IsNoIncentive: isNoIncentive, OverallDiscount: appliedOverallDiscount,
           SubTotal: subTotalAmount, TotalAmount: totalAmount,
@@ -719,9 +856,9 @@ Fax : (852) 2561 6537`;
         try {
           const { collection, doc, setDoc } = fb;
           const quotationsRef = collection(db, 'quote_history');
-          // 使用 setDoc 覆寫或建立同一個 QuoteID 的文件，避免重複保存
+          // 3. 使用 setDoc 與固定的 quoteId 進行覆寫，取代 addDoc 的隨機增生
           const quoteDocRef = doc(quotationsRef, quoteId);
-          await setDoc(quoteDocRef, quotationData);
+          await setDoc(quoteDocRef, quotationData, { merge: true });
         } catch (error) {
           console.error("儲存失敗:", error);
           alert("儲存報價單失敗：" + error.message);
@@ -741,11 +878,10 @@ Fax : (852) 2561 6537`;
             return;
           }
           setValidationError('');
-          // 正式報價才執行儲存至 Firebase 的邏輯
           await saveQuotation(finalValidDate);
         } else {
           setValidationError('');
-          // 非正式報價不儲存，直接跳過 saveQuotation
+          // 非正式報價跳過儲存
         }
         
         setIsPreview(true);
@@ -840,7 +976,6 @@ Fax : (852) 2561 6537`;
           totalRow.font = { bold: true, size: 12 };
           totalRow.getCell(6).numFmt = '#,##0.00';
 
-          // Insert Terms and Conditions
           worksheet.addRow([]);
           worksheet.addRow([]);
           const tcLines = TERMS_AND_CONDITIONS.split('\n');
@@ -999,7 +1134,7 @@ Fax : (852) 2561 6537`;
 
           {/* Sidebar */}
           <aside className="w-56 fixed left-0 top-0 h-screen border-r border-outline-variant/20 bg-surface-container-lowest flex flex-col py-6 z-40">
-            <div className="px-5 mb-8 mt-2">
+            <div className="px-5 mb-8 mt-2 cursor-pointer" onClick={() => setViewMode('generator')}>
               <img src="https://firebasestorage.googleapis.com/v0/b/panw-quote-generator.firebasestorage.app/o/IngramMicroLogo.png?alt=media" alt="Ingram Micro" className="h-8 w-auto" />
               <p className="text-[10px] text-secondary font-label mt-3 uppercase tracking-widest font-bold">Team Palo Alto Networks</p>
             </div>
@@ -1008,18 +1143,17 @@ Fax : (852) 2561 6537`;
                 <span className="material-symbols-outlined">dashboard</span>
                 <span className="text-sm font-semibold">Dashboard</span>
               </a>
-              <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center gap-3 px-3 py-2.5 text-primary font-bold border-r-4 border-primary bg-surface-container transition-colors duration-200">
+              <a href="#" onClick={(e) => {e.preventDefault(); setViewMode('generator');}} className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-200 ${viewMode === 'generator' ? 'text-primary font-bold border-r-4 border-primary bg-surface-container' : 'text-secondary hover:text-primary hover:bg-surface-container-low rounded-lg'}`}>
                 <span className="material-symbols-outlined">request_quote</span>
                 <span className="text-sm">Quotes</span>
+              </a>
+              <a href="#" onClick={(e) => {e.preventDefault(); setViewMode('history');}} className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-200 ${viewMode === 'history' ? 'text-primary font-bold border-r-4 border-primary bg-surface-container' : 'text-secondary hover:text-primary hover:bg-surface-container-low rounded-lg'}`}>
+                <span className="material-symbols-outlined">history</span>
+                <span className="text-sm">Historic Quotes</span>
               </a>
               <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Pipeline');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
                 <span className="material-symbols-outlined">account_tree</span>
                 <span className="text-sm font-semibold">Pipeline</span>
-              </a>
-              <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Orders');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
-                <span className="material-symbols-outlined">package_2</span>
-                <span className="text-sm font-semibold">Orders</span>
-              </a>
               <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Analytics');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
                 <span className="material-symbols-outlined">leaderboard</span>
                 <span className="text-sm font-semibold">Analytics</span>
@@ -1033,7 +1167,8 @@ Fax : (852) 2561 6537`;
                   setEndUserName(''); 
                   setIsUnofficial(false); 
                   setValidationError('');
-                  // 重新生成新的 QuoteID，開啟新的 Session
+                  
+                  // 4. 重置 Session ID，準備寫入全新的一筆
                   const now = Date.now();
                   setQuoteId(`QT-${now}`);
                   setCreatedAt(new Date(now).toISOString());
@@ -1045,10 +1180,6 @@ Fax : (852) 2561 6537`;
                 <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Settings');}} className="flex items-center gap-3 px-3 py-2 text-secondary hover:text-primary transition-colors rounded-lg">
                   <span className="material-symbols-outlined">settings</span>
                   <span className="text-sm font-medium">Settings</span>
-                </a>
-                <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Support');}} className="flex items-center gap-3 px-3 py-2 text-secondary hover:text-primary transition-colors rounded-lg">
-                  <span className="material-symbols-outlined">help</span>
-                  <span className="text-sm font-medium">Support</span>
                 </a>
               </div>
             </div>
@@ -1092,383 +1223,516 @@ Fax : (852) 2561 6537`;
             {/* Main Content Padding */}
             <main className="flex-1 p-8 max-w-[1800px] w-full mx-auto">
               
-              {/* Page Header */}
-              <div className="flex justify-between items-end mb-8">
-                <div>
-                  <h2 className="text-3xl font-black text-primary font-headline tracking-tight">Interactive Quote Generator</h2>
-                  <div className="flex items-center gap-3 mt-3">
-                    <button onClick={() => handlePlaceholderAction('Use Quote Template')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
-                      <span className="material-symbols-outlined text-[16px] text-primary">description</span> Use Quote Template
-                    </button>
-                    <button onClick={() => handlePlaceholderAction('Open Historic Quote')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
-                      <span className="material-symbols-outlined text-[16px] text-primary">history</span> Open Historic Quote
-                    </button>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <button onClick={handleGenerateQuote} disabled={cart.length === 0} className="px-6 py-2.5 bg-primary text-on-primary font-bold rounded-xl shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
-                    <span className="material-symbols-outlined text-[18px]">receipt_long</span> Generate Quote
-                  </button>
-                  {validationError && <p className="text-brand-red text-xs font-bold bg-error-container px-3 py-1 rounded-md shadow-sm">{validationError}</p>}
-                </div>
-              </div>
-
-              {/* Bento Grid: 12 Columns (Left 9, Right 3) */}
-              <div className="grid grid-cols-12 gap-6 items-start">
-                
-                {/* Left Canvas: Search & Table (col-span-9) */}
-                <div className="col-span-12 xl:col-span-9 space-y-6">
-                  
-                  {/* Search & Filters Bento Box */}
-                  <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm ring-1 ring-outline-variant/20 relative z-20" ref={searchContainerRef}>
-                    <div className="flex flex-col gap-4">
-                      {/* Search Bar */}
-                      <div className="relative">
-                        <span className="absolute inset-y-0 left-4 flex items-center text-secondary">
-                          <span className="material-symbols-outlined text-[20px]">search</span>
-                        </span>
-                        <input 
-                          type="text" 
-                          value={searchQuery} 
-                          onChange={(e) => { setSearchQuery(e.target.value); setIsSearching(true); }} 
-                          onFocus={() => setIsSearching(true)} 
-                          disabled={loading} 
-                          placeholder={loading ? "Loading product catalog..." : "Search by SKU, Product Name (space for AND query)"} 
-                          className="w-full pl-12 pr-4 py-3 bg-surface border border-outline-variant/30 rounded-xl text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all disabled:opacity-50 font-medium" 
-                        />
+              {viewMode === 'generator' ? (
+                <>
+                  {/* Generator View */}
+                  <div className="flex justify-between items-end mb-8">
+                    <div>
+                      <h2 className="text-3xl font-black text-primary font-headline tracking-tight">Interactive Quote Generator</h2>
+                      <div className="flex items-center gap-3 mt-3">
+                        <button onClick={() => handlePlaceholderAction('Use Quote Template')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
+                          <span className="material-symbols-outlined text-[16px] text-primary">description</span> Use Quote Template
+                        </button>
+                        <button onClick={() => setViewMode('history')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
+                          <span className="material-symbols-outlined text-[16px] text-primary">history</span> Open Historic Quote
+                        </button>
                       </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <button onClick={handleGenerateQuote} disabled={cart.length === 0} className="px-6 py-2.5 bg-primary text-on-primary font-bold rounded-xl shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 transition-all text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+                        <span className="material-symbols-outlined text-[18px]">receipt_long</span> Generate Quote
+                      </button>
+                      {validationError && <p className="text-brand-red text-xs font-bold bg-error-container px-3 py-1 rounded-md shadow-sm">{validationError}</p>}
+                    </div>
+                  </div>
+
+                  {/* Bento Grid: 12 Columns (Left 9, Right 3) */}
+                  <div className="grid grid-cols-12 gap-6 items-start">
+                    
+                    {/* Left Canvas: Search & Table */}
+                    <div className="col-span-12 xl:col-span-9 space-y-6">
                       
-                      {/* Interactive Filters */}
-                      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 bg-surface-container-low p-3 rounded-xl border border-outline-variant/20">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">category</span> Type
-                          </span>
-                          <div className="flex gap-1">
-                            {productTypeOptions.map(opt => (
-                              <button key={opt} onClick={() => toggleFilter(setFilterProductType, opt)}
-                                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterProductType.includes(opt) ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
-                              >{opt}</button>
-                            ))}
+                      {/* Search & Filters Bento Box */}
+                      <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm ring-1 ring-outline-variant/20 relative z-20" ref={searchContainerRef}>
+                        <div className="flex flex-col gap-4">
+                          {/* Search Bar */}
+                          <div className="relative">
+                            <span className="absolute inset-y-0 left-4 flex items-center text-secondary">
+                              <span className="material-symbols-outlined text-[20px]">search</span>
+                            </span>
+                            <input 
+                              type="text" 
+                              value={searchQuery} 
+                              onChange={(e) => { setSearchQuery(e.target.value); setIsSearching(true); }} 
+                              onFocus={() => setIsSearching(true)} 
+                              disabled={loading} 
+                              placeholder={loading ? "Loading product catalog..." : "Search by SKU, Product Name (space for AND query)"} 
+                              className="w-full pl-12 pr-4 py-3 bg-surface border border-outline-variant/30 rounded-xl text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all disabled:opacity-50 font-medium" 
+                            />
+                          </div>
+                          
+                          {/* Interactive Filters */}
+                          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 bg-surface-container-low p-3 rounded-xl border border-outline-variant/20">
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[14px]">category</span> Type
+                              </span>
+                              <div className="flex gap-1">
+                                {productTypeOptions.map(opt => (
+                                  <button key={opt} onClick={() => toggleFilter(setFilterProductType, opt)}
+                                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterProductType.includes(opt) ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                                  >{opt}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="w-px h-5 bg-outline-variant/40 hidden md:block"></div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[14px]">class</span> Class
+                              </span>
+                              <div className="flex gap-1 flex-wrap">
+                                {productClassOptions.map(opt => (
+                                  <button key={opt} onClick={() => toggleFilter(setFilterProductClass, opt)}
+                                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterProductClass.includes(opt) ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                                  >{opt}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="w-px h-5 bg-outline-variant/40 hidden lg:block"></div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[14px]">extension</span> HA SUB
+                              </span>
+                              <button onClick={() => setFilterIsHA(!filterIsHA)} 
+                                className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterIsHA ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                              >Yes</button>
+                            </div>
                           </div>
                         </div>
-                        <div className="w-px h-5 bg-outline-variant/40 hidden md:block"></div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">class</span> Class
-                          </span>
-                          <div className="flex gap-1 flex-wrap">
-                            {productClassOptions.map(opt => (
-                              <button key={opt} onClick={() => toggleFilter(setFilterProductClass, opt)}
-                                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterProductClass.includes(opt) ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
-                              >{opt}</button>
-                            ))}
+
+                        {/* Typeahead Results */}
+                        {isSearching && searchQuery.trim() !== '' && (
+                          <div className="absolute left-6 right-6 mt-2 bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-2xl max-h-[400px] overflow-y-auto z-50 divide-y divide-outline-variant/10">
+                            {searchResults.length === 0 ? (
+                              <div className="p-6 text-sm text-secondary text-center flex flex-col items-center">
+                                <span className="material-symbols-outlined text-4xl text-outline-variant mb-2">search_off</span>
+                                No matching products found in current filters.
+                              </div>
+                            ) : (
+                              searchResults.map(prod => (
+                                <div key={prod.SKU} onClick={() => addToCart(prod)} className="p-4 hover:bg-surface-container-low cursor-pointer flex justify-between items-center group transition-colors">
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center shrink-0">
+                                      <span className="material-symbols-outlined text-primary/70">inventory_2</span>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="font-bold text-sm text-on-surface mb-0.5 truncate">{prod.SKU}</div>
+                                      <div className="text-xs text-secondary truncate">{prod.Description}</div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-4 shrink-0">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider bg-surface-variant text-on-surface-variant px-2.5 py-1 rounded-full">{prod.Product_type}</span>
+                                    <button className="w-8 h-8 rounded-full bg-primary-fixed text-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100">
+                                      <span className="material-symbols-outlined text-[18px]">add</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
                           </div>
-                        </div>
-                        <div className="w-px h-5 bg-outline-variant/40 hidden lg:block"></div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-bold text-secondary uppercase tracking-widest flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">extension</span> HA SUB
-                          </span>
-                          <button onClick={() => setFilterIsHA(!filterIsHA)} 
-                            className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-colors ${filterIsHA ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border border-outline-variant/30 hover:bg-surface-container-highest'}`}
-                          >Yes</button>
+                        )}
+                      </div>
+
+                      {/* Line Items Table Box */}
+                      <div className="bg-surface-container-lowest rounded-2xl shadow-sm ring-1 ring-outline-variant/20 overflow-hidden relative z-10">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left whitespace-nowrap">
+                            <thead>
+                              <tr className="bg-surface-container-low border-b border-outline-variant/20">
+                                <th className="px-4 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label w-56">Product Details</th>
+                                <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Unit Price ({currency})</th>
+                                <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Disc (%)</th>
+                                <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Disty Cost</th>
+                                <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Qty</th>
+                                <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Term</th>
+                                <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Margin</th>
+                                <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Incentive</th>
+                                <th className="px-4 py-3 text-[10px] font-extrabold text-primary uppercase tracking-widest font-label text-right bg-primary-fixed/30">Ext. Price</th>
+                                <th className="px-2 py-3 w-16"></th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-outline-variant/10">
+                              {cart.length === 0 ? (
+                                <tr>
+                                  <td colSpan="10" className="px-6 py-20 text-center text-secondary">
+                                    <div className="flex flex-col items-center justify-center">
+                                      <span className="material-symbols-outlined text-5xl mb-3 text-outline-variant/50">post_add</span>
+                                      <p className="font-medium text-sm">Cart is empty. Search above to add items.</p>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ) : (
+                                groupedCart.map((row, idx) => {
+                                  if (row.type === 'header') {
+                                    return (
+                                      <tr key={row.id} className="bg-surface-variant/40">
+                                        <td colSpan="10" className="px-5 py-2.5 text-xs font-black text-on-surface uppercase tracking-[0.15em] font-headline border-y border-outline-variant/10">
+                                          {row.title}
+                                        </td>
+                                      </tr>
+                                    );
+                                  }
+
+                                  const item = row;
+                                  const calc = getCalculatedRow(item);
+                                  const isEditableListPrice = isNaN(Number(item.product.Unit_list_price));
+                                  const isTermZero = Number(item.product.Term_months || 0) === 0;
+
+                                  return (
+                                    <tr key={item.id} className="hover:bg-surface-container-highest/20 transition-colors group">
+                                      <td className="px-4 py-4">
+                                        <div className="font-bold text-on-surface text-[13px] leading-tight mb-0.5 truncate max-w-[200px]">{item.product.SKU}</div>
+                                        <div className="text-[11px] text-secondary max-w-[200px] truncate mb-1.5" title={item.product.Description}>{item.product.Description}</div>
+                                        <div className="text-[9px] font-bold uppercase tracking-wider bg-surface-container text-secondary inline-block px-1.5 py-0.5 rounded">{item.product.Product_type}</div>
+                                      </td>
+                                      
+                                      <td className="px-3 py-4 text-right">
+                                        <div className="flex items-center justify-end gap-1">
+                                          <span className="text-secondary font-bold text-xs">{currency === 'USD' ? '$' : 'HK$'}</span>
+                                          <input type="number" step="0.01" min="0" disabled={!isEditableListPrice}
+                                            className={`w-[76px] border border-outline-variant/30 rounded-lg p-1 text-[12px] text-right font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${!isEditableListPrice ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest font-bold'}`}
+                                            value={item.manualListPrice !== null ? item.manualListPrice : calc.listPrice}
+                                            onChange={(e) => updateRow(item.id, 'manualListPrice', e.target.value === '' ? null : parseFloat(e.target.value))}
+                                          />
+                                        </div>
+                                      </td>
+
+                                      <td className="px-3 py-4 text-center">
+                                        <div className="flex items-center justify-center gap-1">
+                                          <input type="number" step="0.1" min="0" max="100"
+                                            className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                            value={Number(((item.manualDiscount !== null ? item.manualDiscount : calc.appliedDiscount) * 100).toFixed(2))}
+                                            onChange={(e) => updateRow(item.id, 'manualDiscount', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
+                                          />
+                                        </div>
+                                      </td>
+
+                                      <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{formatMoney(calc.distyCost)}</td>
+                                      
+                                      <td className="px-3 py-4 text-center">
+                                        <input type="number" min="1" 
+                                          className="w-[48px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                          value={item.qty} onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)} />
+                                      </td>
+                                      
+                                      <td className="px-3 py-4 text-center">
+                                        <input type="number" min="0" max="60" disabled={isTermZero}
+                                          className={`w-[44px] border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none ${isTermZero ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest'}`}
+                                          value={item.termMonths === '' ? '' : item.termMonths} 
+                                          onChange={(e) => updateRow(item.id, 'termMonths', e.target.value)} 
+                                          onBlur={(e) => handleTermBlur(item.id, item.product.SKU, e.target.value)}
+                                        />
+                                      </td>
+
+                                      <td className="px-3 py-4 text-center">
+                                        <div className="flex items-center justify-center gap-1">
+                                          <input type="number" step="0.1" min="0" max="100"
+                                            className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                            value={Number(((item.manualMargin !== null ? item.manualMargin : calc.appliedMargin) * 100).toFixed(2))}
+                                            onChange={(e) => updateRow(item.id, 'manualMargin', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
+                                          />
+                                        </div>
+                                      </td>
+
+                                      <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
+                                      
+                                      <td className="px-4 py-4 text-right font-black text-primary bg-primary-fixed/10 font-mono text-[13px]">{formatMoney(calc.extendedPrice, true)}</td>
+                                      
+                                      <td className="px-2 py-4 text-center align-middle">
+                                        <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <button onClick={() => duplicateRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-primary hover:bg-surface-container-high transition-colors flex items-center justify-center" title="Duplicate">
+                                            <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                                          </button>
+                                          <button onClick={() => removeRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-brand-red hover:bg-error-container transition-colors flex items-center justify-center" title="Delete">
+                                            <span className="material-symbols-outlined text-[16px]">delete</span>
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
                         </div>
                       </div>
                     </div>
 
-                    {/* Typeahead Results */}
-                    {isSearching && searchQuery.trim() !== '' && (
-                      <div className="absolute left-6 right-6 mt-2 bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-2xl max-h-[400px] overflow-y-auto z-50 divide-y divide-outline-variant/10">
-                        {searchResults.length === 0 ? (
-                          <div className="p-6 text-sm text-secondary text-center flex flex-col items-center">
-                            <span className="material-symbols-outlined text-4xl text-outline-variant mb-2">search_off</span>
-                            No matching products found in current filters.
-                          </div>
-                        ) : (
-                          searchResults.map(prod => (
-                            <div key={prod.SKU} onClick={() => addToCart(prod)} className="p-4 hover:bg-surface-container-low cursor-pointer flex justify-between items-center group transition-colors">
-                              <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center shrink-0">
-                                  <span className="material-symbols-outlined text-primary/70">inventory_2</span>
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="font-bold text-sm text-on-surface mb-0.5 truncate">{prod.SKU}</div>
-                                  <div className="text-xs text-secondary truncate">{prod.Description}</div>
-                                </div>
+                    {/* Right Canvas: Summary & Settings */}
+                    <div className="col-span-12 xl:col-span-3 space-y-6">
+                      
+                      {/* Blue Summary Card */}
+                      <div className="bg-primary rounded-3xl p-6 text-on-primary shadow-xl relative overflow-hidden">
+                        <div className="absolute -right-16 -top-16 w-64 h-64 bg-white rounded-full blur-3xl opacity-10 pointer-events-none"></div>
+                        <div className="relative z-10">
+                          <p className="text-primary-fixed text-[10px] font-black uppercase tracking-widest font-label mb-3">Quote Summary</p>
+                          
+                          <div className="space-y-4 text-sm font-label">
+                            <div className="flex justify-between border-b border-white/20 pb-3">
+                              <span className="text-inverse-primary font-medium">Subtotal</span>
+                              <span className="font-bold font-mono">{formatMoney(subTotalAmount, true)}</span>
+                            </div>
+                            {appliedOverallDiscount.value > 0 && (
+                              <div className="flex justify-between border-b border-white/20 pb-3">
+                                <span className="text-tertiary-fixed font-medium">Overall Discount</span>
+                                <span className="font-bold font-mono text-tertiary-fixed">-{formatMoney(overallDiscountAmount, true)}</span>
                               </div>
-                              <div className="flex items-center gap-4 shrink-0">
-                                <span className="text-[10px] font-bold uppercase tracking-wider bg-surface-variant text-on-surface-variant px-2.5 py-1 rounded-full">{prod.Product_type}</span>
-                                <button className="w-8 h-8 rounded-full bg-primary-fixed text-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100">
-                                  <span className="material-symbols-outlined text-[18px]">add</span>
-                                </button>
+                            )}
+                            <div className="flex justify-between pt-2 pb-4 border-b border-white/20">
+                              <span className="text-white font-black">Total Amount</span>
+                              <span className="text-white font-black text-xl font-mono tracking-tight">{formatMoney(totalAmount, true)}</span>
+                            </div>
+                            
+                            {/* Costs & Margin grouped inside Summary */}
+                            <div className="space-y-2 pt-2">
+                               <div className="flex justify-between items-center">
+                                <span className="text-[11px] text-inverse-primary uppercase tracking-wide font-bold">Booking to Vendor</span>
+                                <span className="text-xs font-mono font-medium text-white">{formatMoney(totalBookingToVendor, true)}</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-[11px] text-inverse-primary uppercase tracking-wide font-bold">Other Cost</span>
+                                <span className="text-xs font-mono font-medium text-white">{formatMoney(totalOtherCost, true)}</span>
+                              </div>
+                              <div className="flex justify-between items-center mt-2">
+                                <span className="text-xs text-white font-black uppercase tracking-wide">Gross Margin</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-mono font-bold text-white">{formatMoney(totalGrossMarginAmount, true)}</span>
+                                  <span className="text-[9px] font-black text-brand-red bg-white px-1.5 py-0.5 rounded shadow-sm">
+                                    {totalGrossMarginPercent.toFixed(1)}%
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                          ))
-                        )}
+                            
+                          </div>
+                        </div>
                       </div>
-                    )}
+
+                      {/* Client Details Form */}
+                      <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-sm ring-1 ring-outline-variant/20">
+                        <div className="flex justify-between items-center mb-5">
+                          <h3 className="font-headline font-bold text-primary flex items-center gap-2">
+                            <span className="material-symbols-outlined text-[18px]">person</span> Document Info
+                          </h3>
+                          <button onClick={handleToggleUnofficial} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-colors ${isUnofficial ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-highest text-secondary hover:bg-outline-variant/30'}`}>
+                            {isUnofficial ? 'Unofficial' : 'Official'}
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Quote Valid Date</label>
+                            <input type="date" value={validDate} onChange={(e) => setValidDate(e.target.value)} disabled={isUnofficial}
+                              className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Reseller Name</label>
+                            <input type="text" placeholder="e.g. Ingram Micro" value={resellerName} onChange={(e) => setResellerName(e.target.value)} disabled={isUnofficial}
+                              className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">End User Name</label>
+                            <input type="text" placeholder="e.g. Metropolis Tower" value={endUserName} onChange={(e) => setEndUserName(e.target.value)} disabled={isUnofficial}
+                              className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Global Pricing Controls */}
+                      <div className="bg-surface-container-low rounded-2xl p-5 border border-outline-variant/20 shadow-sm">
+                        <h3 className="font-headline font-bold text-primary flex items-center gap-2 mb-5">
+                          <span className="material-symbols-outlined text-[18px]">tune</span> Pricing Controls
+                        </h3>
+                        
+                        <div className="space-y-5">
+                          {/* Controls */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-secondary uppercase">Incentive</label>
+                              <button onClick={() => setIsNoIncentive(!isNoIncentive)}
+                                className={`w-full py-2 text-xs font-bold rounded-lg border transition-colors ${isNoIncentive ? 'bg-primary text-on-primary border-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                              >Cancel Incentive</button>
+                            </div>
+                            
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-secondary uppercase">Bulk Qty</label>
+                              <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 focus-within:ring-1 focus-within:border-primary">
+                                <input type="number" min="1" step="1" value={bulkQty} onChange={(e) => setBulkQty(e.target.value)} 
+                                  className="w-full bg-transparent border-0 text-xs text-center font-bold font-mono focus:ring-0 p-0" />
+                                <button onClick={handleBulkUpdateQty} className="px-2 bg-surface-container-high rounded text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-1.5 col-span-2">
+                              <label className="text-[10px] font-bold text-secondary uppercase">Bulk Margin (%)</label>
+                              <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 focus-within:ring-1 focus-within:border-primary">
+                                <input type="number" min="0" step="1" value={bulkMargin} onChange={(e) => setBulkMargin(e.target.value)} 
+                                  className="w-full bg-transparent border-0 text-xs text-center font-bold font-mono focus:ring-0 p-0" />
+                                <button onClick={handleBulkUpdateMargin} className="px-3 bg-surface-container-high rounded text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-outline-variant/20">
+                            <label className="block text-[10px] font-bold text-secondary uppercase mb-2">Overall Discount</label>
+                            <div className="flex items-center gap-2">
+                              <div className="flex bg-surface-container-high rounded-lg p-0.5 shrink-0">
+                                <button onClick={() => setDiscountType('$')} className={`px-2 py-1 text-xs font-bold rounded-md transition-colors ${discountType === '$' ? 'bg-white text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}>$</button>
+                                <button onClick={() => setDiscountType('%')} className={`px-2 py-1 text-xs font-bold rounded-md transition-colors ${discountType === '%' ? 'bg-white text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}>%</button>
+                              </div>
+                              <input type="number" min="0" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} placeholder="0" className="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant/30 rounded-lg px-2 text-xs font-mono font-bold focus:border-primary focus:ring-1 focus:ring-primary outline-none" />
+                              <button onClick={handleApplyOverallDiscount} className="px-2.5 py-1.5 text-[10px] font-black rounded-lg bg-primary text-on-primary hover:bg-primary-container transition-colors shadow-sm">SET</button>
+                              <button onClick={handleResetOverallDiscount} className="px-2 py-1.5 text-[10px] font-black rounded-lg bg-surface-container-highest text-secondary hover:bg-brand-red hover:text-white transition-colors" title="Reset"><span className="material-symbols-outlined text-[14px]">refresh</span></button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* ========================================================
+                   History View 
+                   ======================================================== */
+                <div className="space-y-8 fade-in">
+                  <div className="flex justify-between items-end mb-8 border-b border-outline-variant/20 pb-6">
+                    <div>
+                      <h2 className="text-3xl font-black text-primary font-headline tracking-tight">Historic Quotes</h2>
+                      <p className="text-sm text-secondary mt-1">Review, clone or revise your previously saved quotation documents.</p>
+                    </div>
+                    <button onClick={() => setViewMode('generator')} className="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-sm font-bold rounded-xl border border-outline-variant/30 transition-colors shadow-sm">
+                      <span className="material-symbols-outlined text-[18px]">arrow_back</span> Back to Generator
+                    </button>
                   </div>
 
-                  {/* Line Items Table Box */}
-                  <div className="bg-surface-container-lowest rounded-2xl shadow-sm ring-1 ring-outline-variant/20 overflow-hidden relative z-10">
+                  {/* Filters Box */}
+                  <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/20">
+                    <div className="flex justify-between items-center mb-5">
+                      <h3 className="font-headline font-bold text-primary flex items-center gap-2 text-lg">
+                        <span className="material-symbols-outlined text-[20px]">filter_alt</span> Search Filters
+                      </h3>
+                      <button onClick={handleApplyHistoryFilters} className="px-5 py-2 bg-primary text-on-primary font-bold rounded-lg text-sm hover:bg-primary-container transition-colors shadow-sm">
+                        Apply Filters
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-4 gap-6">
+                      <div className="col-span-4 lg:col-span-1 space-y-1.5">
+                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Date From</label>
+                        <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
+                      </div>
+                      <div className="col-span-4 lg:col-span-1 space-y-1.5">
+                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Date To</label>
+                        <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
+                      </div>
+                      <div className="col-span-4 lg:col-span-1 space-y-1.5">
+                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Reseller</label>
+                        <input type="text" placeholder="Search Reseller..." value={filterReseller} onChange={e => setFilterReseller(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
+                      </div>
+                      <div className="col-span-4 lg:col-span-1 space-y-1.5">
+                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">End User</label>
+                        <input type="text" placeholder="Search End User..." value={filterEndUser} onChange={e => setFilterEndUser(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
+                      </div>
+                      
+                      <div className="col-span-4 border-t border-outline-variant/20 pt-4 mt-2">
+                        <label className="block text-[11px] font-bold text-secondary uppercase tracking-wider mb-3">Created By (Multiple Selection)</label>
+                        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
+                          {uniquePreparedBy.map(name => (
+                            <button 
+                              key={name} 
+                              onClick={() => handleTogglePreparedBy(name)} 
+                              className={`px-3 py-1.5 text-[12px] font-bold rounded-lg transition-colors border ${filterPreparedBy.includes(name) ? 'bg-primary text-on-primary border-primary shadow-sm' : 'bg-surface text-secondary border-outline-variant/30 hover:bg-surface-container-highest'}`}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                          {uniquePreparedBy.length === 0 && <p className="text-xs text-secondary italic">No authors found in history.</p>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* History Table */}
+                  <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/20 overflow-hidden relative">
+                    {isLoadingHistory && (
+                      <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-10 flex items-center justify-center">
+                        <span className="material-symbols-outlined animate-spin text-primary text-4xl">autorenew</span>
+                      </div>
+                    )}
                     <div className="overflow-x-auto">
                       <table className="w-full text-left whitespace-nowrap">
                         <thead>
                           <tr className="bg-surface-container-low border-b border-outline-variant/20">
-                            <th className="px-4 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label w-56">Product Details</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Unit Price ({currency})</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Disc (%)</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Disty Cost</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Qty</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Term</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-center">Margin</th>
-                            <th className="px-3 py-3 text-[10px] font-extrabold text-secondary uppercase tracking-widest font-label text-right">Incentive</th>
-                            <th className="px-4 py-3 text-[10px] font-extrabold text-primary uppercase tracking-widest font-label text-right bg-primary-fixed/30">Ext. Price</th>
-                            <th className="px-2 py-3 w-16"></th>
+                            <th className="px-5 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label w-24 text-center">Actions</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Quote ID</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Date (Created)</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Reseller</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">End User</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Prepared By</th>
+                            <th className="px-4 py-4 text-[10px] font-black text-primary uppercase tracking-widest font-label text-right">Total Amount</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-outline-variant/10">
-                          {cart.length === 0 ? (
+                          {displayedQuotes.length === 0 && !isLoadingHistory ? (
                             <tr>
-                              <td colSpan="10" className="px-6 py-20 text-center text-secondary">
-                                <div className="flex flex-col items-center justify-center">
-                                  <span className="material-symbols-outlined text-5xl mb-3 text-outline-variant/50">post_add</span>
-                                  <p className="font-medium text-sm">Cart is empty. Search above to add items.</p>
-                                </div>
+                              <td colSpan="7" className="px-6 py-16 text-center text-secondary">
+                                <span className="material-symbols-outlined text-4xl mb-2 text-outline-variant/50">search_off</span>
+                                <p className="font-medium text-sm">No historical quotes found matching your filters.</p>
                               </td>
                             </tr>
                           ) : (
-                            groupedCart.map((row, idx) => {
-                              if (row.type === 'header') {
-                                return (
-                                  <tr key={row.id} className="bg-surface-variant/40">
-                                    <td colSpan="10" className="px-5 py-2.5 text-xs font-black text-on-surface uppercase tracking-[0.15em] font-headline border-y border-outline-variant/10">
-                                      {row.title}
-                                    </td>
-                                  </tr>
-                                );
-                              }
-
-                              const item = row;
-                              const calc = getCalculatedRow(item);
-                              const isEditableListPrice = isNaN(Number(item.product.Unit_list_price));
-                              const isTermZero = Number(item.product.Term_months || 0) === 0;
-
-                              return (
-                                <tr key={item.id} className="hover:bg-surface-container-highest/20 transition-colors group">
-                                  <td className="px-4 py-4">
-                                    <div className="font-bold text-on-surface text-[13px] leading-tight mb-0.5 truncate max-w-[200px]">{item.product.SKU}</div>
-                                    <div className="text-[11px] text-secondary max-w-[200px] truncate mb-1.5" title={item.product.Description}>{item.product.Description}</div>
-                                    <div className="text-[9px] font-bold uppercase tracking-wider bg-surface-container text-secondary inline-block px-1.5 py-0.5 rounded">{item.product.Product_type}</div>
-                                  </td>
-                                  
-                                  <td className="px-3 py-4 text-right">
-                                    <div className="flex items-center justify-end gap-1">
-                                      <span className="text-secondary font-bold text-xs">{currency === 'USD' ? '$' : 'HK$'}</span>
-                                      <input type="number" step="0.01" min="0" disabled={!isEditableListPrice}
-                                        className={`w-[76px] border border-outline-variant/30 rounded-lg p-1 text-[12px] text-right font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${!isEditableListPrice ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest font-bold'}`}
-                                        value={item.manualListPrice !== null ? item.manualListPrice : calc.listPrice}
-                                        onChange={(e) => updateRow(item.id, 'manualListPrice', e.target.value === '' ? null : parseFloat(e.target.value))}
-                                      />
-                                    </div>
-                                  </td>
-
-                                  <td className="px-3 py-4 text-center">
-                                    <div className="flex items-center justify-center gap-1">
-                                      <input type="number" step="0.1" min="0" max="100"
-                                        className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
-                                        value={Number(((item.manualDiscount !== null ? item.manualDiscount : calc.appliedDiscount) * 100).toFixed(2))}
-                                        onChange={(e) => updateRow(item.id, 'manualDiscount', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
-                                      />
-                                    </div>
-                                  </td>
-
-                                  <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{formatMoney(calc.distyCost)}</td>
-                                  
-                                  <td className="px-3 py-4 text-center">
-                                    <input type="number" min="1" 
-                                      className="w-[48px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
-                                      value={item.qty} onChange={(e) => updateRow(item.id, 'qty', parseInt(e.target.value) || 1)} />
-                                  </td>
-                                  
-                                  <td className="px-3 py-4 text-center">
-                                    <input type="number" min="0" max="60" disabled={isTermZero}
-                                      className={`w-[44px] border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none ${isTermZero ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-lowest'}`}
-                                      value={item.termMonths === '' ? '' : item.termMonths} 
-                                      onChange={(e) => updateRow(item.id, 'termMonths', e.target.value)} 
-                                      onBlur={(e) => handleTermBlur(item.id, item.product.SKU, e.target.value)}
-                                    />
-                                  </td>
-
-                                  <td className="px-3 py-4 text-center">
-                                    <div className="flex items-center justify-center gap-1">
-                                      <input type="number" step="0.1" min="0" max="100"
-                                        className="w-[52px] bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 text-[12px] font-bold text-center font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none"
-                                        value={Number(((item.manualMargin !== null ? item.manualMargin : calc.appliedMargin) * 100).toFixed(2))}
-                                        onChange={(e) => updateRow(item.id, 'manualMargin', e.target.value === '' ? null : parseFloat(e.target.value) / 100)}
-                                      />
-                                    </div>
-                                  </td>
-
-                                  <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
-                                  
-                                  <td className="px-4 py-4 text-right font-black text-primary bg-primary-fixed/10 font-mono text-[13px]">{formatMoney(calc.extendedPrice, true)}</td>
-                                  
-                                  <td className="px-2 py-4 text-center align-middle">
-                                    <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <button onClick={() => duplicateRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-primary hover:bg-surface-container-high transition-colors flex items-center justify-center" title="Duplicate">
-                                        <span className="material-symbols-outlined text-[16px]">content_copy</span>
-                                      </button>
-                                      <button onClick={() => removeRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-brand-red hover:bg-error-container transition-colors flex items-center justify-center" title="Delete">
-                                        <span className="material-symbols-outlined text-[16px]">delete</span>
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })
+                            displayedQuotes.map(quote => (
+                              <tr key={quote.QuoteID} className="hover:bg-surface-container-highest/30 transition-colors group">
+                                <td className="px-5 py-3 text-center align-middle">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button onClick={() => loadQuoteToGenerator(quote, 'clone')} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-primary hover:bg-primary hover:text-on-primary transition-colors flex items-center justify-center shadow-sm" title="Clone as New Quote">
+                                      <span className="material-symbols-outlined text-[16px]">file_copy</span>
+                                    </button>
+                                    <button onClick={() => loadQuoteToGenerator(quote, 'revise')} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-amber-600 hover:bg-amber-600 hover:text-white transition-colors flex items-center justify-center shadow-sm" title="Revise Existing Quote">
+                                      <span className="material-symbols-outlined text-[16px]">edit_document</span>
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 font-bold text-on-surface text-[13px]">{quote.QuoteID}</td>
+                                <td className="px-4 py-3 text-secondary text-[12px]">{new Date(quote.CreatedAt).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-secondary text-[13px] font-medium">{quote.ResellerName || '-'}</td>
+                                <td className="px-4 py-3 text-secondary text-[13px] font-medium">{quote.EndUserName || '-'}</td>
+                                <td className="px-4 py-3">
+                                  <span className="px-2.5 py-1 bg-surface-container text-primary text-[10px] font-bold rounded-md">{quote.PreparedBy || 'Unknown'}</span>
+                                </td>
+                                <td className="px-4 py-3 text-right font-black text-on-surface font-mono text-[14px]">
+                                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: quote.Currency || 'HKD' }).format(quote.TotalAmount)}
+                                </td>
+                              </tr>
+                            ))
                           )}
                         </tbody>
                       </table>
                     </div>
+                    {/* Pagination */}
+                    {displayedQuotes.length < filteredQuotes.length && (
+                      <div className="p-4 border-t border-outline-variant/20 bg-surface flex justify-center">
+                        <button onClick={() => setHistoryPage(p => p + 1)} className="px-6 py-2 bg-surface-container-high text-primary font-bold rounded-lg text-sm border border-outline-variant/30 hover:bg-surface-container-highest transition-colors flex items-center gap-2">
+                          <span className="material-symbols-outlined text-[18px]">expand_more</span> Load Next 20 Records
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                {/* Right Canvas: Summary & Settings (col-span-3) */}
-                <div className="col-span-12 xl:col-span-3 space-y-6">
-                  
-                  {/* Blue Summary Card */}
-                  <div className="bg-primary rounded-3xl p-6 text-on-primary shadow-xl relative overflow-hidden">
-                    <div className="absolute -right-16 -top-16 w-64 h-64 bg-white rounded-full blur-3xl opacity-10 pointer-events-none"></div>
-                    <div className="relative z-10">
-                      <p className="text-primary-fixed text-[10px] font-black uppercase tracking-widest font-label mb-3">Quote Summary</p>
-                      
-                      <div className="space-y-4 text-sm font-label">
-                        <div className="flex justify-between border-b border-white/20 pb-3">
-                          <span className="text-inverse-primary font-medium">Subtotal</span>
-                          <span className="font-bold font-mono">{formatMoney(subTotalAmount, true)}</span>
-                        </div>
-                        {appliedOverallDiscount.value > 0 && (
-                          <div className="flex justify-between border-b border-white/20 pb-3">
-                            <span className="text-tertiary-fixed font-medium">Overall Discount</span>
-                            <span className="font-bold font-mono text-tertiary-fixed">-{formatMoney(overallDiscountAmount, true)}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between pt-2 pb-4 border-b border-white/20">
-                          <span className="text-white font-black">Total Amount</span>
-                          <span className="text-white font-black text-xl font-mono tracking-tight">{formatMoney(totalAmount, true)}</span>
-                        </div>
-                        
-                        {/* Costs & Margin grouped inside Summary */}
-                        <div className="space-y-2 pt-2">
-                           <div className="flex justify-between items-center">
-                            <span className="text-[11px] text-inverse-primary uppercase tracking-wide font-bold">Booking to Vendor</span>
-                            <span className="text-xs font-mono font-medium text-white">{formatMoney(totalBookingToVendor, true)}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-[11px] text-inverse-primary uppercase tracking-wide font-bold">Other Cost</span>
-                            <span className="text-xs font-mono font-medium text-white">{formatMoney(totalOtherCost, true)}</span>
-                          </div>
-                          <div className="flex justify-between items-center mt-2">
-                            <span className="text-xs text-white font-black uppercase tracking-wide">Gross Margin</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-mono font-bold text-white">{formatMoney(totalGrossMarginAmount, true)}</span>
-                              <span className="text-[9px] font-black text-brand-red bg-white px-1.5 py-0.5 rounded shadow-sm">
-                                {totalGrossMarginPercent.toFixed(1)}%
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Client Details Form */}
-                  <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-sm ring-1 ring-outline-variant/20">
-                    <div className="flex justify-between items-center mb-5">
-                      <h3 className="font-headline font-bold text-primary flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[18px]">person</span> Document Info
-                      </h3>
-                      <button onClick={handleToggleUnofficial} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-colors ${isUnofficial ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-highest text-secondary hover:bg-outline-variant/30'}`}>
-                        {isUnofficial ? 'Unofficial' : 'Official'}
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Quote Valid Date</label>
-                        <input type="date" value={validDate} onChange={(e) => setValidDate(e.target.value)} disabled={isUnofficial}
-                          className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Reseller Name</label>
-                        <input type="text" placeholder="e.g. Ingram Micro" value={resellerName} onChange={(e) => setResellerName(e.target.value)} disabled={isUnofficial}
-                          className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">End User Name</label>
-                        <input type="text" placeholder="e.g. Metropolis Tower" value={endUserName} onChange={(e) => setEndUserName(e.target.value)} disabled={isUnofficial}
-                          className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Global Pricing Controls */}
-                  <div className="bg-surface-container-low rounded-2xl p-5 border border-outline-variant/20 shadow-sm">
-                    <h3 className="font-headline font-bold text-primary flex items-center gap-2 mb-5">
-                      <span className="material-symbols-outlined text-[18px]">tune</span> Pricing Controls
-                    </h3>
-                    
-                    <div className="space-y-5">
-                      {/* Controls */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold text-secondary uppercase">Incentive</label>
-                          <button onClick={() => setIsNoIncentive(!isNoIncentive)}
-                            className={`w-full py-2 text-xs font-bold rounded-lg border transition-colors ${isNoIncentive ? 'bg-primary text-on-primary border-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border-outline-variant/30 hover:bg-surface-container-highest'}`}
-                          >Cancel Incentive</button>
-                        </div>
-                        
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold text-secondary uppercase">Bulk Qty</label>
-                          <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 focus-within:ring-1 focus-within:border-primary">
-                            <input type="number" min="1" step="1" value={bulkQty} onChange={(e) => setBulkQty(e.target.value)} 
-                              className="w-full bg-transparent border-0 text-xs text-center font-bold font-mono focus:ring-0 p-0" />
-                            <button onClick={handleBulkUpdateQty} className="px-2 bg-surface-container-high rounded text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-1.5 col-span-2">
-                          <label className="text-[10px] font-bold text-secondary uppercase">Bulk Margin (%)</label>
-                          <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 focus-within:ring-1 focus-within:border-primary">
-                            <input type="number" min="0" step="1" value={bulkMargin} onChange={(e) => setBulkMargin(e.target.value)} 
-                              className="w-full bg-transparent border-0 text-xs text-center font-bold font-mono focus:ring-0 p-0" />
-                            <button onClick={handleBulkUpdateMargin} className="px-3 bg-surface-container-high rounded text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-outline-variant/20">
-                        <label className="block text-[10px] font-bold text-secondary uppercase mb-2">Overall Discount</label>
-                        <div className="flex items-center gap-2">
-                          <div className="flex bg-surface-container-high rounded-lg p-0.5 shrink-0">
-                            <button onClick={() => setDiscountType('$')} className={`px-2 py-1 text-xs font-bold rounded-md transition-colors ${discountType === '$' ? 'bg-white text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}>$</button>
-                            <button onClick={() => setDiscountType('%')} className={`px-2 py-1 text-xs font-bold rounded-md transition-colors ${discountType === '%' ? 'bg-white text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}>%</button>
-                          </div>
-                          <input type="number" min="0" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} placeholder="0" className="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant/30 rounded-lg px-2 text-xs font-mono font-bold focus:border-primary focus:ring-1 focus:ring-primary outline-none" />
-                          <button onClick={handleApplyOverallDiscount} className="px-2.5 py-1.5 text-[10px] font-black rounded-lg bg-primary text-on-primary hover:bg-primary-container transition-colors shadow-sm">SET</button>
-                          <button onClick={handleResetOverallDiscount} className="px-2 py-1.5 text-[10px] font-black rounded-lg bg-surface-container-highest text-secondary hover:bg-brand-red hover:text-white transition-colors" title="Reset"><span className="material-symbols-outlined text-[14px]">refresh</span></button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              )}
             </main>
           </div>
         </div>
