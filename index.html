@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ingram Micro | Quote Generator</title>
   
-  <!-- 載入 Tailwind CSS 與套件 (無 crossorigin 避免被阻擋) -->
+  <!-- 載入 Tailwind CSS 與套件 -->
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   
   <!-- 載入 Google Fonts 與 Material Symbols -->
@@ -400,8 +400,9 @@ Fax : (852) 2561 6537`;
       // ===============================
       
       // View Modes
-      const [viewMode, setViewMode] = useState('generator'); // 'generator' | 'history'
+      const [viewMode, setViewMode] = useState('generator'); // 'generator' | 'pipeline'
       const [isPreview, setIsPreview] = useState(false);
+      const [hideExtPrice, setHideExtPrice] = useState(false); // 隱藏 Extended Price 開關
       const [toastMessage, setToastMessage] = useState('');
       const [validationError, setValidationError] = useState('');
 
@@ -450,20 +451,24 @@ Fax : (852) 2561 6537`;
       const [oppNumber, setOppNumber] = useState('');
       const [pipelineError, setPipelineError] = useState('');
 
-      // History States
+      // Pipeline View States (History)
       const [historyQuotes, setHistoryQuotes] = useState([]);
       const [filteredQuotes, setFilteredQuotes] = useState([]);
       const [historyPage, setHistoryPage] = useState(1);
       const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+      const [editingOpptyId, setEditingOpptyId] = useState(null); // Inline edit mode
+      const [editDraft, setEditDraft] = useState({});
 
+      // Pipeline Filters (Date default to 90 days ago)
       const [filterDateFrom, setFilterDateFrom] = useState(() => {
         const d = new Date();
-        d.setDate(d.getDate() - 30);
+        d.setDate(d.getDate() - 90);
         return d.toISOString().split('T')[0];
       });
       const [filterDateTo, setFilterDateTo] = useState(() => new Date().toISOString().split('T')[0]);
       const [filterReseller, setFilterReseller] = useState('');
       const [filterEndUser, setFilterEndUser] = useState('');
+      const [filterOpptyName, setFilterOpptyName] = useState('');
 
       // User Info
       const displayUserName = user?.displayName || user?.email?.split('@')[0] || 'User';
@@ -471,7 +476,7 @@ Fax : (852) 2561 6537`;
       const [filterPreparedBy, setFilterPreparedBy] = useState([displayUserName]); 
 
       // ===============================
-      // Memos & Effects (Must be executed every render)
+      // Memos & Effects
       // ===============================
 
       const productTypeOptions = useMemo(() => {
@@ -533,7 +538,6 @@ Fax : (852) 2561 6537`;
         return Object.entries(summary).map(([model, qty]) => ({ model, qty }));
       }, [cart]);
 
-      // 自動拼湊不重複且帶最大數量的 Quote Name
       const generatedQuoteName = useMemo(() => {
         return modelSummary.map(m => `${m.qty}x ${m.model}`).join(', ');
       }, [modelSummary]);
@@ -565,12 +569,12 @@ Fax : (852) 2561 6537`;
         setIsLoadingHistory(true);
         try {
           const { collection, getDocs } = fb;
-          const snapshot = await getDocs(collection(db, 'quote_history'));
+          const snapshot = await getDocs(collection(db, 'opportunity'));
           const quotes = snapshot.docs.map(doc => doc.data());
           setHistoryQuotes(quotes);
         } catch (error) {
-          console.error("無法載入歷史報價:", error);
-          setToastMessage('無法載入歷史記錄。');
+          console.error("無法載入 Pipeline 記錄:", error);
+          setToastMessage('無法載入 Pipeline 記錄。');
           setTimeout(() => setToastMessage(''), 3000);
         } finally {
           setIsLoadingHistory(false);
@@ -578,7 +582,7 @@ Fax : (852) 2561 6537`;
       };
 
       useEffect(() => {
-        if (viewMode === 'history') {
+        if (viewMode === 'pipeline') {
           fetchHistory();
         }
       }, [viewMode]);
@@ -587,7 +591,7 @@ Fax : (852) 2561 6537`;
         if (historyQuotes.length > 0) {
           handleApplyHistoryFilters();
         }
-      }, [historyQuotes, filterDateFrom, filterDateTo, filterReseller, filterEndUser, filterPreparedBy]);
+      }, [historyQuotes, filterDateFrom, filterDateTo, filterReseller, filterEndUser, filterPreparedBy, filterOpptyName]);
 
       // ===============================
       // Helper / Handler Functions
@@ -601,6 +605,12 @@ Fax : (852) 2561 6537`;
           if (filterPreparedBy.length > 0 && !filterPreparedBy.includes(q.PreparedBy)) return false;
           if (filterReseller && !(q.ResellerName || '').toLowerCase().includes(filterReseller.toLowerCase())) return false;
           if (filterEndUser && !(q.EndUserName || '').toLowerCase().includes(filterEndUser.toLowerCase())) return false;
+          
+          if (filterOpptyName) {
+            const oppTerms = filterOpptyName.toLowerCase().split(/\s+/).filter(Boolean);
+            const targetName = (q.OpptyName || '').toLowerCase();
+            if (!oppTerms.every(term => targetName.includes(term))) return false;
+          }
           return true;
         });
 
@@ -725,60 +735,6 @@ Fax : (852) 2561 6537`;
         setIsUnofficial(!isUnofficial);
       };
 
-      const loadQuoteToGenerator = (quote, mode) => {
-         setCurrency(quote.Currency || 'HKD');
-         setStrategy(quote.AppliedStrategy || 'Standard');
-         setIsNoIncentive(quote.IsNoIncentive || false);
-         if (quote.OverallDiscount) {
-            setDiscountType(quote.OverallDiscount.type || '%');
-            setDiscountInput(quote.OverallDiscount.value ? quote.OverallDiscount.value.toString() : '');
-            setAppliedOverallDiscount(quote.OverallDiscount);
-         } else {
-            handleResetOverallDiscount();
-         }
-
-         setResellerName(quote.ResellerName || '');
-         setEndUserName(quote.EndUserName || '');
-         setValidDate(quote.QuoteValidDate || getDefaultValidDate());
-         setIsUnofficial(quote.IsUnofficial || false);
-
-         if (mode === 'revise') {
-            setQuoteId(quote.QuoteID);
-            setCreatedAt(quote.CreatedAt);
-         } else { 
-            const now = Date.now();
-            setQuoteId(`QT-${now}`);
-            setCreatedAt(new Date(now).toISOString());
-         }
-
-         const newCart = (quote.Items || []).map(item => {
-            let prod = products.find(p => p.SKU === item.SKU);
-            if (!prod) {
-               prod = {
-                  SKU: item.SKU,
-                  Description: item.Description,
-                  Product_class: item.ProductClass || 'Other',
-                  Product_type: 'Unknown',
-                  Unit_list_price: item.ListPrice / exchangeRate, 
-               };
-            }
-            return {
-               id: `${item.SKU}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-               product: prod,
-               qty: item.Qty || 1,
-               termMonths: item.Term || 0,
-               manualDiscount: item.Discount,
-               manualMargin: item.Margin,
-               manualListPrice: item.ListPrice
-            };
-         });
-
-         setCart(newCart);
-         setViewMode('generator');
-         setToastMessage(`已載入報價單 ${quote.QuoteID} (${mode === 'clone' ? 'Clone' : 'Revise'})`);
-         setTimeout(() => setToastMessage(''), 3000);
-      };
-
       const getCalculatedRow = (item) => {
         const { product, qty, termMonths, manualDiscount, manualMargin, manualListPrice } = item;
         
@@ -861,49 +817,9 @@ Fax : (852) 2561 6537`;
       const totalGrossMarginAmount = totalAmount - totalBookingToVendor - totalOtherCost;
       const totalGrossMarginPercent = totalAmount > 0 ? (totalGrossMarginAmount / totalAmount) * 100 : 0;
 
-      const saveQuotation = async (finalValidDate) => {
-        if (cart.length === 0) return;
-        const quotationData = {
-          QuoteID: quoteId,
-          QuoteName: generatedQuoteName,
-          Date: new Date().toISOString(), 
-          QuoteValidDate: finalValidDate || validDate,
-          CreatedAt: createdAt, 
-          UpdatedAt: new Date().toISOString(), 
-          Currency: currency, AppliedStrategy: strategy,
-          IsNoIncentive: isNoIncentive, OverallDiscount: appliedOverallDiscount,
-          SubTotal: subTotalAmount, TotalAmount: totalAmount,
-          ResellerName: resellerName || 'Unknown',
-          EndUserName: endUserName || 'Unknown',
-          PreparedBy: displayUserName,
-          IsUnofficial: isUnofficial,
-          Items: groupedCart.filter(row => row.type === 'item').map(item => {
-            const calc = getCalculatedRow(item);
-            return {
-              ProductClass: item.product.Product_class, 
-              SKU: item.product.SKU, Description: item.product.Description, Qty: item.qty, Term: item.termMonths,
-              ListPrice: calc.listPrice, Discount: calc.appliedDiscount, DistyCost: calc.distyCost,
-              Margin: calc.appliedMargin, ExtendedPrice: calc.extendedPrice
-            };
-          })
-        };
-
-        if (isMockMode || !db || !user) {
-          console.log("=== 準備寫入報價單 (模擬模式) ===", JSON.stringify(quotationData, null, 2));
-          return;
-        }
-
-        try {
-          const { collection, doc, setDoc } = fb;
-          const quotationsRef = collection(db, 'quote_history');
-          const quoteDocRef = doc(quotationsRef, quoteId);
-          await setDoc(quoteDocRef, quotationData, { merge: true });
-        } catch (error) {
-          console.error("儲存失敗:", error);
-          alert("儲存報價單失敗：" + error.message);
-        }
-      };
-
+      // ==========================================
+      // Firebase Saving Logic
+      // ==========================================
       const savePipeline = async (finalValidDate) => {
         const timestamp = quoteId.split('-')[1] || Date.now();
         const opptyId = `OPPTY-${timestamp}`;
@@ -981,14 +897,12 @@ Fax : (852) 2561 6537`;
         }
         let finalValidDate = validDate || getDefaultValidDate();
         await savePipeline(finalValidDate);
-        await saveQuotation(finalValidDate);
+        
         setShowPipelineModal(false);
         setIsPreview(true);
       };
       
       const skipPipelineAndQuote = async () => {
-        let finalValidDate = validDate || getDefaultValidDate();
-        await saveQuotation(finalValidDate);
         setShowPipelineModal(false);
         setIsPreview(true);
       };
@@ -1000,6 +914,9 @@ Fax : (852) 2561 6537`;
         }).format(val);
       };
 
+      // ==========================================
+      // Exports
+      // ==========================================
       const exportToExcel = async () => {
         if (isUnofficial) return; 
         try {
@@ -1011,14 +928,17 @@ Fax : (852) 2561 6537`;
           const workbook = new ExcelJS.Workbook();
           const worksheet = workbook.addWorksheet('Quotation');
 
-          worksheet.columns = [
+          // 不含 Unit Price，並根據 HideExtPrice 決定是否輸出 Ext Price
+          const columns = [
             { header: '', key: 'sku', width: 25 },
             { header: '', key: 'desc', width: 50 },
             { header: '', key: 'qty', width: 10 },
-            { header: '', key: 'term', width: 15 },
-            { header: '', key: 'unitPrice', width: 20 },
-            { header: '', key: 'extPrice', width: 25 }
+            { header: '', key: 'term', width: 15 }
           ];
+          if (!hideExtPrice) {
+            columns.push({ header: '', key: 'extPrice', width: 25 });
+          }
+          worksheet.columns = columns;
 
           const titleRow = worksheet.addRow([isUnofficial ? 'UNOFFICIAL QUOTATION' : 'OFFICIAL QUOTATION']);
           titleRow.font = { size: 16, bold: true };
@@ -1030,7 +950,9 @@ Fax : (852) 2561 6537`;
           worksheet.addRow(['Currency:', currency]);
           worksheet.addRow([]); 
 
-          const headerLabels = ['SKU / Item', 'Description', 'Qty', 'Term (MONTHS)', `Unit Price (${currency})`, `Reseller Extended Price (${currency})`];
+          const headerLabels = ['SKU / Item', 'Description', 'Qty', 'Term (M)'];
+          if (!hideExtPrice) headerLabels.push(`Reseller Extended Price (${currency})`);
+
           const headerRow = worksheet.addRow(headerLabels);
           headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }; 
           headerRow.eachCell(cell => {
@@ -1046,47 +968,61 @@ Fax : (852) 2561 6537`;
                 cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }; 
                 cell.alignment = { vertical: 'middle' };
               });
-              worksheet.mergeCells(`A${groupRow.number}:F${groupRow.number}`);
+              const endCol = hideExtPrice ? 'D' : 'E';
+              worksheet.mergeCells(`A${groupRow.number}:${endCol}${groupRow.number}`);
             } else {
               const calc = getCalculatedRow(row);
-              const unitPrice = row.qty > 0 ? calc.extendedPrice / row.qty : 0;
               const termVal = row.termMonths == 0 ? '-' : row.termMonths;
 
-              const dataRow = worksheet.addRow([
+              const rowData = [
                 row.product.SKU,
                 row.product.Description,
                 row.qty,
-                termVal,
-                unitPrice,
-                calc.extendedPrice
-              ]);
+                termVal
+              ];
+              if (!hideExtPrice) rowData.push(calc.extendedPrice);
 
-              dataRow.getCell(5).numFmt = '#,##0.00';
-              dataRow.getCell(6).numFmt = '#,##0'; 
+              const dataRow = worksheet.addRow(rowData);
+
               dataRow.getCell(3).alignment = { horizontal: 'center' };
               dataRow.getCell(4).alignment = { horizontal: 'center' };
+              if (!hideExtPrice) {
+                dataRow.getCell(5).numFmt = '#,##0';
+              }
             }
           });
 
           worksheet.addRow([]);
           if (appliedOverallDiscount.value > 0) {
-            const subRow = worksheet.addRow(['', '', '', '', 'Subtotal:', subTotalAmount]);
-            subRow.getCell(6).numFmt = '#,##0.00';
-            const discRow = worksheet.addRow(['', '', '', '', `Discount (${appliedOverallDiscount.type === '%' ? appliedOverallDiscount.value + '%' : currency}):`, -overallDiscountAmount]);
-            discRow.getCell(6).numFmt = '#,##0.00';
+            const subRowData = ['', '', ''];
+            subRowData.push('Subtotal:');
+            if (!hideExtPrice) subRowData.push(subTotalAmount);
+            const subRow = worksheet.addRow(subRowData);
+            if (!hideExtPrice) subRow.getCell(5).numFmt = '#,##0.00';
+            
+            const discRowData = ['', '', ''];
+            discRowData.push(`Discount (${appliedOverallDiscount.type === '%' ? appliedOverallDiscount.value + '%' : currency}):`);
+            if (!hideExtPrice) discRowData.push(-overallDiscountAmount);
+            const discRow = worksheet.addRow(discRowData);
+            if (!hideExtPrice) discRow.getCell(5).numFmt = '#,##0.00';
             discRow.font = { color: { argb: 'FFE01F26' } }; 
           }
           
-          const totalRow = worksheet.addRow(['', '', '', '', 'Total Amount:', totalAmount]);
+          const totalRowData = ['', '', ''];
+          totalRowData.push('Total Amount:');
+          if (!hideExtPrice) totalRowData.push(totalAmount);
+          const totalRow = worksheet.addRow(totalRowData);
           totalRow.font = { bold: true, size: 12 };
-          totalRow.getCell(6).numFmt = '#,##0.00';
+          if (!hideExtPrice) totalRow.getCell(5).numFmt = '#,##0.00';
 
+          // Insert Terms and Conditions
           worksheet.addRow([]);
           worksheet.addRow([]);
           const tcLines = TERMS_AND_CONDITIONS.split('\n');
           tcLines.forEach(line => {
              const r = worksheet.addRow([line]);
-             worksheet.mergeCells(`A${r.number}:F${r.number}`);
+             const endCol = hideExtPrice ? 'D' : 'E';
+             worksheet.mergeCells(`A${r.number}:${endCol}${r.number}`);
              r.getCell(1).font = { size: 9, color: { argb: 'FF666666' } };
              r.getCell(1).alignment = { wrapText: true, vertical: 'top' };
           });
@@ -1103,11 +1039,89 @@ Fax : (852) 2561 6537`;
         }
       };
 
+      const exportPipelineToExcel = async () => {
+        try {
+          if (typeof window.ExcelJS === 'undefined') {
+            alert("Excel 匯出模組尚未載入完成，請確認網路連線。");
+            return;
+          }
+          const ExcelJS = window.ExcelJS;
+          const workbook = new ExcelJS.Workbook();
+          const worksheet = workbook.addWorksheet('Pipeline');
+
+          worksheet.columns = [
+            { header: 'Oppty ID', key: 'id', width: 20 },
+            { header: 'Oppty Name', key: 'name', width: 40 },
+            { header: 'Stage', key: 'stage', width: 15 },
+            { header: 'Deal Reg', key: 'dealreg', width: 20 },
+            { header: 'Reseller', key: 'reseller', width: 25 },
+            { header: 'End User', key: 'enduser', width: 25 },
+            { header: 'Prepared By', key: 'preparedby', width: 20 },
+            { header: 'Created At', key: 'createdat', width: 20 },
+            { header: 'Total Amount', key: 'total', width: 15 },
+            { header: 'Currency', key: 'currency', width: 10 },
+          ];
+
+          worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF005596' } };
+
+          filteredQuotes.forEach(q => {
+            worksheet.addRow([
+              q.OpptyID,
+              q.OpptyName,
+              q.PipelineStage || 'Pipeline',
+              q.DealRegStatus || 'New Logo',
+              q.ResellerName,
+              q.EndUserName,
+              q.PreparedBy,
+              new Date(q.CreatedAt).toLocaleDateString(),
+              q.TotalAmount,
+              q.Currency
+            ]);
+          });
+
+          const buffer = await workbook.xlsx.writeBuffer();
+          const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+          window.saveAs(blob, `Pipeline_Export_${Date.now()}.xlsx`);
+          setToastMessage('Pipeline 匯出成功！');
+          setTimeout(() => setToastMessage(''), 3000);
+        } catch (error) {
+          alert("匯出失敗：" + error.message);
+        }
+      };
+
       const handlePlaceholderAction = (actionName) => {
         alert(`功能尚未實作 (Placeholder): ${actionName}`);
       };
 
-      const displayedQuotes = filteredQuotes.slice(0, historyPage * 20);
+      // Inline Edit Pipeline Logic
+      const handleEditPipelineClick = (quote) => {
+        setEditingOpptyId(quote.OpptyID);
+        setEditDraft({ ...quote });
+      };
+
+      const handleCancelEditPipeline = () => {
+        setEditingOpptyId(null);
+        setEditDraft({});
+      };
+
+      const handleSavePipelineEdit = async () => {
+        if (!db) return;
+        try {
+          const { doc, setDoc } = fb;
+          const opptyRef = doc(db, 'opportunity', editDraft.OpptyID);
+          const updatedData = { ...editDraft, UpdatedAt: new Date().toISOString() };
+          
+          await setDoc(opptyRef, updatedData, { merge: true });
+          
+          setHistoryQuotes(prev => prev.map(q => q.OpptyID === editDraft.OpptyID ? updatedData : q));
+          setEditingOpptyId(null);
+          setToastMessage('Opportunity updated successfully!');
+          setTimeout(() => setToastMessage(''), 3000);
+        } catch (e) {
+          alert('Save failed: ' + e.message);
+        }
+      };
 
       // ====================================================
       // 預覽與列印版面 (Print View)
@@ -1115,13 +1129,13 @@ Fax : (852) 2561 6537`;
       if (isPreview) {
         return (
           <div className="min-h-screen bg-white text-on-surface font-body p-8 print:p-0">
-            <div className="max-w-4xl mx-auto print-container">
+            <div className="max-w-4xl mx-auto print-container relative">
               <div className="flex justify-between items-start mb-10 border-b-2 border-primary pb-6">
                 <div>
                   <h1 className="text-3xl font-extrabold text-primary font-headline tracking-tight mb-2">
                     {isUnofficial ? 'UNOFFICIAL QUOTATION' : 'OFFICIAL QUOTATION'}
                   </h1>
-                  <div className="space-y-1">
+                  <div className="space-y-1 mt-4">
                     <p className="text-sm text-secondary font-label"><span className="font-semibold w-32 inline-block">Date:</span> {new Date().toLocaleDateString()}</p>
                     <p className="text-sm text-secondary font-label"><span className="font-semibold w-32 inline-block">Quote Valid Date:</span> {validDate}</p>
                     <p className="text-sm text-secondary font-label"><span className="font-semibold w-32 inline-block">Reseller:</span> {resellerName || '____________________'}</p>
@@ -1134,7 +1148,10 @@ Fax : (852) 2561 6537`;
                   <p className="text-sm text-secondary font-label">Team Palo Alto Networks</p>
                   <p className="text-sm font-bold text-primary mt-2">Currency: {currency}</p>
                   
-                  <div className="mt-4 no-print flex items-center justify-end gap-2">
+                  <div className="mt-4 no-print flex items-center justify-end gap-2 flex-wrap">
+                    <button onClick={() => setHideExtPrice(!hideExtPrice)} className={`px-4 py-2 text-sm font-bold rounded-lg shadow-sm flex items-center gap-2 transition-colors ${hideExtPrice ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-secondary border border-outline-variant/30 hover:bg-surface-variant'}`}>
+                      <span className="material-symbols-outlined text-[18px]">{hideExtPrice ? 'visibility_off' : 'visibility'}</span> {hideExtPrice ? 'Hidden Ext. Price' : 'Hide Ext. Price'}
+                    </button>
                     <button onClick={exportToExcel} disabled={isUnofficial} className={`px-4 py-2 text-sm font-bold rounded-lg shadow-sm flex items-center gap-2 transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed' : 'bg-surface-container-high text-primary hover:bg-surface-variant border border-outline-variant/30'}`}>
                       <span className="material-symbols-outlined text-[18px]">download</span> Excel
                     </button>
@@ -1155,21 +1172,20 @@ Fax : (852) 2561 6537`;
                     <th className="py-3 px-4 text-left font-bold text-primary font-label uppercase tracking-wider text-xs">Description</th>
                     <th className="py-3 px-4 text-center font-bold text-primary font-label uppercase tracking-wider text-xs">Qty</th>
                     <th className="py-3 px-4 text-center font-bold text-primary font-label uppercase tracking-wider text-xs">Term (M)</th>
-                    <th className="py-3 px-4 text-right font-bold text-primary font-label uppercase tracking-wider text-xs">Unit Price</th>
-                    <th className="py-3 px-4 text-right font-bold text-primary font-label uppercase tracking-wider text-xs">Ext. Price</th>
+                    {!hideExtPrice && <th className="py-3 px-4 text-right font-bold text-primary font-label uppercase tracking-wider text-xs">Ext. Price</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant/10">
                   {cart.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="py-8 text-center text-secondary italic">Empty Quotation</td>
+                      <td colSpan={hideExtPrice ? "4" : "5"} className="py-8 text-center text-secondary italic">Empty Quotation</td>
                     </tr>
                   ) : (
                     groupedCart.map((row, idx) => {
                       if (row.type === 'header') {
                         return (
                           <tr key={row.id} className="bg-surface-variant/30">
-                            <td colSpan="6" className="py-2 px-4 text-xs font-bold text-on-surface uppercase tracking-widest font-label">
+                            <td colSpan={hideExtPrice ? "4" : "5"} className="py-2 px-4 text-xs font-bold text-on-surface uppercase tracking-widest font-label">
                               {row.title}
                             </td>
                           </tr>
@@ -1178,15 +1194,13 @@ Fax : (852) 2561 6537`;
 
                       const item = row;
                       const calc = getCalculatedRow(item);
-                      const unitPrice = item.qty > 0 ? calc.extendedPrice / item.qty : 0; 
                       return (
                         <tr key={item.id} className="hover:bg-surface-container-lowest transition-colors">
                           <td className="py-3 px-4 font-semibold text-on-surface">{item.product.SKU}</td>
                           <td className="py-3 px-4 text-secondary pr-4 leading-relaxed">{item.product.Description}</td>
                           <td className="py-3 px-4 text-center font-medium">{item.qty}</td>
                           <td className="py-3 px-4 text-center text-secondary">{item.termMonths == 0 ? '-' : item.termMonths}</td>
-                          <td className="py-3 px-4 text-right font-mono text-secondary">{formatMoney(unitPrice, true)}</td>
-                          <td className="py-3 px-4 text-right font-bold text-on-surface font-mono">{formatMoney(calc.extendedPrice, true)}</td>
+                          {!hideExtPrice && <td className="py-3 px-4 text-right font-bold text-on-surface font-mono">{formatMoney(calc.extendedPrice, true)}</td>}
                         </tr>
                       )
                     })
@@ -1327,11 +1341,7 @@ Fax : (852) 2561 6537`;
                 <span className="material-symbols-outlined">request_quote</span>
                 <span className="text-sm">Quotes</span>
               </a>
-              <a href="#" onClick={(e) => {e.preventDefault(); setViewMode('history');}} className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-200 ${viewMode === 'history' ? 'text-primary font-bold border-r-4 border-primary bg-surface-container' : 'text-secondary hover:text-primary hover:bg-surface-container-low rounded-lg'}`}>
-                <span className="material-symbols-outlined">history</span>
-                <span className="text-sm">Historic Quotes</span>
-              </a>
-              <a href="#" onClick={(e) => {e.preventDefault(); handlePlaceholderAction('Pipeline');}} className="flex items-center gap-3 px-3 py-2.5 text-secondary hover:text-primary hover:bg-surface-container-low transition-colors duration-200 rounded-lg">
+              <a href="#" onClick={(e) => {e.preventDefault(); setViewMode('pipeline');}} className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-200 ${viewMode === 'pipeline' ? 'text-primary font-bold border-r-4 border-primary bg-surface-container' : 'text-secondary hover:text-primary hover:bg-surface-container-low rounded-lg'}`}>
                 <span className="material-symbols-outlined">account_tree</span>
                 <span className="text-sm font-semibold">Pipeline</span>
               </a>
@@ -1417,9 +1427,6 @@ Fax : (852) 2561 6537`;
                       <div className="flex items-center gap-3 mt-3">
                         <button onClick={() => handlePlaceholderAction('Use Quote Template')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
                           <span className="material-symbols-outlined text-[16px] text-primary">description</span> Use Quote Template
-                        </button>
-                        <button onClick={() => setViewMode('history')} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-xs font-bold rounded-lg border border-outline-variant/30 transition-colors shadow-sm">
-                          <span className="material-symbols-outlined text-[16px] text-primary">history</span> Open Historic Quote
                         </button>
                       </div>
                     </div>
@@ -1682,334 +1689,4 @@ Fax : (852) 2561 6537`;
                                               if (e.target.value === '') {
                                                 updateRow(item.id, 'manualMargin', null);
                                               } else {
-                                                let val = parseFloat(e.target.value);
-                                                if (!isNaN(val)) {
-                                                  if (val < 0) val = 0;
-                                                  if (val > 100) val = 100;
-                                                  updateRow(item.id, 'manualMargin', val / 100);
-                                                }
-                                              }
-                                            }}
-                                          />
-                                        </div>
-                                      </td>
-
-                                      <td className="px-3 py-4 text-right text-secondary font-mono text-[12px]">{calc.incentivePool > 0 ? formatMoney(calc.incentivePool) : '-'}</td>
-                                      
-                                      <td className="px-4 py-4 text-right font-black text-primary bg-primary-fixed/10 font-mono text-[13px]">{formatMoney(calc.extendedPrice, true)}</td>
-                                      
-                                      <td className="px-2 py-4 text-center align-middle">
-                                        <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                          <button onClick={() => duplicateRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-primary hover:bg-surface-container-high transition-colors flex items-center justify-center" title="Duplicate">
-                                            <span className="material-symbols-outlined text-[16px]">content_copy</span>
-                                          </button>
-                                          <button onClick={() => removeRow(item.id)} className="w-7 h-7 rounded bg-surface text-secondary hover:text-brand-red hover:bg-error-container transition-colors flex items-center justify-center" title="Delete">
-                                            <span className="material-symbols-outlined text-[16px]">delete</span>
-                                          </button>
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  );
-                                })
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Right Canvas: Summary & Settings (col-span-3) */}
-                    <div className="col-span-12 xl:col-span-3 space-y-6">
-                      
-                      {/* Blue Summary Card */}
-                      <div className="bg-primary rounded-3xl p-6 text-on-primary shadow-xl relative overflow-hidden">
-                        <div className="absolute -right-16 -top-16 w-64 h-64 bg-white rounded-full blur-3xl opacity-10 pointer-events-none"></div>
-                        <div className="relative z-10">
-                          <p className="text-primary-fixed text-[10px] font-black uppercase tracking-widest font-label mb-3">Quote Summary</p>
-                          
-                          <div className="space-y-4 text-sm font-label">
-                            <div className="flex justify-between border-b border-white/20 pb-3">
-                              <span className="text-inverse-primary font-medium">Subtotal</span>
-                              <span className="font-bold font-mono">{formatMoney(subTotalAmount, true)}</span>
-                            </div>
-                            {appliedOverallDiscount.value > 0 && (
-                              <div className="flex justify-between border-b border-white/20 pb-3">
-                                <span className="text-tertiary-fixed font-medium">Overall Discount</span>
-                                <span className="font-bold font-mono text-tertiary-fixed">-{formatMoney(overallDiscountAmount, true)}</span>
-                              </div>
-                            )}
-                            <div className="flex justify-between pt-2 pb-4 border-b border-white/20">
-                              <span className="text-white font-black">Total Amount</span>
-                              <span className="text-white font-black text-xl font-mono tracking-tight">{formatMoney(totalAmount, true)}</span>
-                            </div>
-                            
-                            {/* Costs & Margin grouped inside Summary */}
-                            <div className="space-y-2 pt-2">
-                               <div className="flex justify-between items-center">
-                                <span className="text-[11px] text-inverse-primary uppercase tracking-wide font-bold">Booking to Vendor</span>
-                                <span className="text-xs font-mono font-medium text-white">{formatMoney(totalBookingToVendor, true)}</span>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-[11px] text-inverse-primary uppercase tracking-wide font-bold">Other Cost</span>
-                                <span className="text-xs font-mono font-medium text-white">{formatMoney(totalOtherCost, true)}</span>
-                              </div>
-                              <div className="flex justify-between items-center mt-2">
-                                <span className="text-xs text-white font-black uppercase tracking-wide">Gross Margin</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-mono font-bold text-white">{formatMoney(totalGrossMarginAmount, true)}</span>
-                                  <span className="text-[9px] font-black text-brand-red bg-white px-1.5 py-0.5 rounded shadow-sm">
-                                    {totalGrossMarginPercent.toFixed(1)}%
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Client Details Form */}
-                      <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-sm ring-1 ring-outline-variant/20">
-                        <div className="flex justify-between items-center mb-5">
-                          <h3 className="font-headline font-bold text-primary flex items-center gap-2">
-                            <span className="material-symbols-outlined text-[18px]">person</span> Document Info
-                          </h3>
-                          <button onClick={handleToggleUnofficial} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-colors ${isUnofficial ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-highest text-secondary hover:bg-outline-variant/30'}`}>
-                            {isUnofficial ? 'Unofficial' : 'Official'}
-                          </button>
-                        </div>
-                        
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Quote Valid Date</label>
-                            <input type="date" value={validDate} onChange={(e) => setValidDate(e.target.value)} disabled={isUnofficial}
-                              className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">Reseller Name <span className="text-brand-red">*</span></label>
-                            <input type="text" placeholder="e.g. Ingram Micro" value={resellerName} onChange={(e) => setResellerName(e.target.value)} disabled={isUnofficial}
-                              className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-bold text-secondary mb-1.5 uppercase tracking-wide">End User Name <span className="text-brand-red">*</span></label>
-                            <input type="text" placeholder="e.g. Metropolis Tower" value={endUserName} onChange={(e) => setEndUserName(e.target.value)} disabled={isUnofficial}
-                              className={`w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors ${isUnofficial ? 'bg-surface-dim text-secondary cursor-not-allowed placeholder-transparent' : 'bg-surface-container-lowest'}`} 
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Global Pricing Controls */}
-                      <div className="bg-surface-container-low rounded-2xl p-5 border border-outline-variant/20 shadow-sm">
-                        <h3 className="font-headline font-bold text-primary flex items-center gap-2 mb-5">
-                          <span className="material-symbols-outlined text-[18px]">tune</span> Pricing Controls
-                        </h3>
-                        
-                        <div className="space-y-5">
-                          {/* Controls */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold text-secondary uppercase">Incentive</label>
-                              <button onClick={() => setIsNoIncentive(!isNoIncentive)}
-                                className={`w-full py-2 text-xs font-bold rounded-lg border transition-colors ${isNoIncentive ? 'bg-primary text-on-primary border-primary shadow-sm' : 'bg-surface-container-lowest text-secondary border-outline-variant/30 hover:bg-surface-container-highest'}`}
-                              >Cancel Incentive</button>
-                            </div>
-                            
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] font-bold text-secondary uppercase">Bulk Qty</label>
-                              <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 focus-within:ring-1 focus-within:border-primary">
-                                <input type="number" min="1" step="1" value={bulkQty} onChange={(e) => setBulkQty(e.target.value)} 
-                                  className="w-full bg-transparent border-0 text-xs text-center font-bold font-mono focus:ring-0 p-0" />
-                                <button onClick={handleBulkUpdateQty} className="px-2 bg-surface-container-high rounded text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
-                              </div>
-                            </div>
-                            
-                            <div className="space-y-1.5 col-span-2">
-                              <label className="text-[10px] font-bold text-secondary uppercase">Bulk Margin (%)</label>
-                              <div className="flex bg-surface-container-lowest border border-outline-variant/30 rounded-lg p-1 focus-within:ring-1 focus-within:border-primary">
-                                <input type="number" min="0" step="1" value={bulkMargin} onChange={(e) => setBulkMargin(e.target.value)} 
-                                  className="w-full bg-transparent border-0 text-xs text-center font-bold font-mono focus:ring-0 p-0" />
-                                <button onClick={handleBulkUpdateMargin} className="px-3 bg-surface-container-high rounded text-[10px] font-bold text-primary hover:bg-primary hover:text-on-primary transition-colors">SET</button>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="pt-2 border-t border-outline-variant/20">
-                            <label className="block text-[10px] font-bold text-secondary uppercase mb-2">Overall Discount</label>
-                            <div className="flex items-center gap-2">
-                              <div className="flex bg-surface-container-high rounded-lg p-0.5 shrink-0">
-                                <button onClick={() => setDiscountType('$')} className={`px-2 py-1 text-xs font-bold rounded-md transition-colors ${discountType === '$' ? 'bg-white text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}>$</button>
-                                <button onClick={() => setDiscountType('%')} className={`px-2 py-1 text-xs font-bold rounded-md transition-colors ${discountType === '%' ? 'bg-white text-primary shadow-sm' : 'text-secondary hover:text-primary'}`}>%</button>
-                              </div>
-                              <input type="number" min="0" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} placeholder="0" className="flex-1 min-w-0 bg-surface-container-lowest border border-outline-variant/30 rounded-lg px-2 text-xs font-mono font-bold focus:border-primary focus:ring-1 focus:ring-primary outline-none" />
-                              <button onClick={handleApplyOverallDiscount} className="px-2.5 py-1.5 text-[10px] font-black rounded-lg bg-primary text-on-primary hover:bg-primary-container transition-colors shadow-sm">SET</button>
-                              <button onClick={handleResetOverallDiscount} className="px-2 py-1.5 text-[10px] font-black rounded-lg bg-surface-container-highest text-secondary hover:bg-brand-red hover:text-white transition-colors" title="Reset"><span className="material-symbols-outlined text-[14px]">refresh</span></button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* ========================================================
-                   History View 
-                   ======================================================== */
-                <div className="space-y-8 fade-in">
-                  <div className="flex justify-between items-end mb-8 border-b border-outline-variant/20 pb-6">
-                    <div>
-                      <h2 className="text-3xl font-black text-primary font-headline tracking-tight">Historic Quotes</h2>
-                      <p className="text-sm text-secondary mt-1">Review, clone or revise your previously saved quotation documents.</p>
-                    </div>
-                    <button onClick={() => setViewMode('generator')} className="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface text-sm font-bold rounded-xl border border-outline-variant/30 transition-colors shadow-sm">
-                      <span className="material-symbols-outlined text-[18px]">arrow_back</span> Back to Generator
-                    </button>
-                  </div>
-
-                  {/* Filters Box */}
-                  <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/20">
-                    <div className="flex justify-between items-center mb-5">
-                      <h3 className="font-headline font-bold text-primary flex items-center gap-2 text-lg">
-                        <span className="material-symbols-outlined text-[20px]">filter_alt</span> Search Filters
-                      </h3>
-                      <button onClick={handleApplyHistoryFilters} className="px-5 py-2 bg-primary text-on-primary font-bold rounded-lg text-sm hover:bg-primary-container transition-colors shadow-sm">
-                        Apply Filters
-                      </button>
-                    </div>
-                    
-                    <div className="grid grid-cols-4 gap-6">
-                      <div className="col-span-4 lg:col-span-1 space-y-1.5">
-                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Date From</label>
-                        <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
-                      </div>
-                      <div className="col-span-4 lg:col-span-1 space-y-1.5">
-                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Date To</label>
-                        <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
-                      </div>
-                      <div className="col-span-4 lg:col-span-1 space-y-1.5">
-                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">Reseller</label>
-                        <input type="text" placeholder="Search Reseller..." value={filterReseller} onChange={e => setFilterReseller(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
-                      </div>
-                      <div className="col-span-4 lg:col-span-1 space-y-1.5">
-                        <label className="text-[11px] font-bold text-secondary uppercase tracking-wider">End User</label>
-                        <input type="text" placeholder="Search End User..." value={filterEndUser} onChange={e => setFilterEndUser(e.target.value)} className="w-full border border-outline-variant/30 rounded-xl p-2.5 text-sm font-medium focus:border-primary focus:ring-1 focus:ring-primary outline-none bg-surface" />
-                      </div>
-                      
-                      <div className="col-span-4 border-t border-outline-variant/20 pt-4 mt-2">
-                        <label className="block text-[11px] font-bold text-secondary uppercase tracking-wider mb-3">Created By (Multiple Selection)</label>
-                        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
-                          {uniquePreparedBy.map(name => (
-                            <button 
-                              key={name} 
-                              onClick={() => handleTogglePreparedBy(name)} 
-                              className={`px-3 py-1.5 text-[12px] font-bold rounded-lg transition-colors border ${filterPreparedBy.includes(name) ? 'bg-primary text-on-primary border-primary shadow-sm' : 'bg-surface text-secondary border-outline-variant/30 hover:bg-surface-container-highest'}`}
-                            >
-                              {name}
-                            </button>
-                          ))}
-                          {uniquePreparedBy.length === 0 && <p className="text-xs text-secondary italic">No authors found in history.</p>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* History Table */}
-                  <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/20 overflow-hidden relative">
-                    {isLoadingHistory && (
-                      <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-10 flex items-center justify-center">
-                        <span className="material-symbols-outlined animate-spin text-primary text-4xl">autorenew</span>
-                      </div>
-                    )}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left whitespace-nowrap">
-                        <thead>
-                          <tr className="bg-surface-container-low border-b border-outline-variant/20">
-                            <th className="px-5 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label w-24 text-center">Actions</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Quote ID</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Quote Name</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Reseller</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">End User</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Prepared By</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-secondary uppercase tracking-widest font-label">Date (Created)</th>
-                            <th className="px-4 py-4 text-[10px] font-black text-primary uppercase tracking-widest font-label text-right">Total Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-outline-variant/10">
-                          {displayedQuotes.length === 0 && !isLoadingHistory ? (
-                            <tr>
-                              <td colSpan="8" className="px-6 py-16 text-center text-secondary">
-                                <span className="material-symbols-outlined text-4xl mb-2 text-outline-variant/50">search_off</span>
-                                <p className="font-medium text-sm">No historical quotes found matching your filters.</p>
-                              </td>
-                            </tr>
-                          ) : (
-                            displayedQuotes.map(quote => (
-                              <tr key={quote.QuoteID} className="hover:bg-surface-container-highest/30 transition-colors group">
-                                <td className="px-5 py-3 text-center align-middle">
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    <button onClick={() => loadQuoteToGenerator(quote, 'clone')} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-primary hover:bg-primary hover:text-on-primary transition-colors flex items-center justify-center shadow-sm" title="Clone as New Quote">
-                                      <span className="material-symbols-outlined text-[16px]">file_copy</span>
-                                    </button>
-                                    <button onClick={() => loadQuoteToGenerator(quote, 'revise')} className="w-8 h-8 rounded-lg bg-surface border border-outline-variant/30 text-amber-600 hover:bg-amber-600 hover:text-white transition-colors flex items-center justify-center shadow-sm" title="Revise Existing Quote">
-                                      <span className="material-symbols-outlined text-[16px]">edit_document</span>
-                                    </button>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 font-bold text-on-surface text-[13px]">{quote.QuoteID}</td>
-                                <td className="px-4 py-3 text-secondary text-[12px] max-w-[180px] truncate" title={quote.QuoteName}>{quote.QuoteName || '-'}</td>
-                                <td className="px-4 py-3 text-secondary text-[13px] font-medium">{quote.ResellerName || '-'}</td>
-                                <td className="px-4 py-3 text-secondary text-[13px] font-medium">{quote.EndUserName || '-'}</td>
-                                <td className="px-4 py-3">
-                                  <span className="px-2.5 py-1 bg-surface-container text-primary text-[10px] font-bold rounded-md">{quote.PreparedBy || 'Unknown'}</span>
-                                </td>
-                                <td className="px-4 py-3 text-secondary text-[12px]">{new Date(quote.CreatedAt).toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right font-black text-on-surface font-mono text-[14px]">
-                                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: quote.Currency || 'HKD' }).format(quote.TotalAmount)}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                    {/* Pagination */}
-                    {displayedQuotes.length < filteredQuotes.length && (
-                      <div className="p-4 border-t border-outline-variant/20 bg-surface flex justify-center">
-                        <button onClick={() => setHistoryPage(p => p + 1)} className="px-6 py-2 bg-surface-container-high text-primary font-bold rounded-lg text-sm border border-outline-variant/30 hover:bg-surface-container-highest transition-colors flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[18px]">expand_more</span> Load Next 20 Records
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </main>
-          </div>
-        </div>
-      );
-    }
-
-    let isAppRendered = false;
-    const mountReactApp = () => {
-      if (isAppRendered) return;
-      isAppRendered = true;
-      const loadingEl = document.getElementById('loading');
-      if (loadingEl) loadingEl.style.display = 'none';
-      const root = ReactDOM.createRoot(document.getElementById('root'));
-      root.render(<App fb={window.FirebaseLib} />);
-    };
-
-    window.addEventListener('firebase-loaded', mountReactApp);
-    window.addEventListener('firebase-failed', mountReactApp);
-
-    setTimeout(() => {
-      if (!isAppRendered) {
-        console.warn("模組載入逾時，強制以模擬模式啟動。");
-        mountReactApp();
-      }
-    }, 2500);
-  </script>
-</body>
-</html>
+                                                let val = parseFloat(e.
